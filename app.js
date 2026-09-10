@@ -727,8 +727,9 @@ function generateChronologicalLifeStory(targetPerson, persons, relationships) {
     });
   }
 
-  // 2. Traversal Event: Birth of Children (each child's place of birth)
-  const childLinks = relationships.filter(r => r.parent_id === targetId && r.rel_type !== "Spouse");
+  // 2. Traversal Event: Birth of Children (children of the couple = union of
+  // both parents' children, each child's place of birth included)
+  const childLinks = unionChildrenOf(targetId).map(id => ({ child_id: id }));
   childLinks.forEach(link => {
     const child = persons.find(p => p.person_id === link.child_id);
     if (child && child.birth_year) {
@@ -931,9 +932,25 @@ function calculateVitalStats(person) {
   return `Born in ${birth}. Is ${currentAge} years old.`;
 }
 
+// All children of a married couple, deduped across BOTH partners, so both
+// parents shown together under the umbrella report the same family picture.
+function unionChildrenOf(targetPersonId) {
+  const spouseIds = relationships
+    .filter(r => (r.parent_id === targetPersonId || r.child_id === targetPersonId) && r.rel_type === 'Spouse')
+    .map(r => r.parent_id === targetPersonId ? r.child_id : r.parent_id);
+  const ids = new Set();
+  [targetPersonId].concat(spouseIds).forEach(pid => {
+    relationships.forEach(r => {
+      if (r.parent_id === pid && r.rel_type !== 'Spouse') ids.add(r.child_id);
+    });
+  });
+  return Array.from(ids);
+}
+
 function aggregateFamilyCounts(targetPersonId, relationships, persons) {
-  // 1. Calculate Children Count (Excluding spouse relationship rows)
-  const childrenLinks = relationships.filter(r => r.parent_id === targetPersonId && r.rel_type !== "Spouse");
+  // 1. Calculate Children Count (union of both parents' children + dedupe)
+  const childrenIds = unionChildrenOf(targetPersonId);
+  const childrenLinks = childrenIds.map(id => ({ child_id: id }));
 
   // 2. Identify Parents to extract Sibling lists accurately
   const parentLinks = relationships.filter(r => r.child_id === targetPersonId && r.rel_type !== "Spouse");
@@ -1738,11 +1755,23 @@ function getSelectedRelationValue() {
   return el ? el.value : '';
 }
 
+// The join guide may ONLY be dismissed via the "Understood" button; Escape and
+// misplaced clicks are ignored while the guide is showing.
+function obGuideShowing() {
+  const welcome = document.getElementById('ob-welcome');
+  const modal = document.getElementById('onboard-modal');
+  return !!welcome && !!modal && welcome.style.display !== 'none' && modal.classList.contains('active');
+}
+
 document.addEventListener('keydown', function (e) {
   if (e.key === 'Escape' && window.isOnboardingSelectionMode) {
+    if (obGuideShowing()) return; // block dismissal while the guide is up
     cancelOnboardingSelection();
   }
 });
+document.addEventListener('click', function (e) {
+  if (obGuideShowing() && e.target && e.target.id === 'onboard-modal') return;
+}, true);
 
 document.getElementById('ob-search').addEventListener('input', function() {
   clearTimeout(searchDebounce);
