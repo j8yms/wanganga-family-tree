@@ -159,6 +159,47 @@ svg { width: 100%; height: 100%; }
 .merge-dialog p { font-size: 14px; line-height: 1.5; margin-bottom: 16px; }
 .merge-actions { display: flex; gap: 10px; }
 
+.ob-welcome-msg {
+  font-size: 15px; line-height: 1.6; color: var(--text-dim); margin: 8px 0 24px;
+}
+
+.relation-options {
+  display: grid; gap: 10px; margin-top: 6px;
+}
+.relation-options label {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--bg); border: 1px solid var(--surface2); border-radius: 10px;
+  padding: 12px 14px; font-size: 14px; color: var(--text); cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+}
+.relation-options label:hover { border-color: var(--accent); }
+.relation-options label:has(input:checked) {
+  border-color: var(--accent); background: rgba(56, 189, 248, 0.08);
+}
+.relation-options input { accent-color: var(--accent); }
+
+#onboarding-helper-banner {
+  position: fixed; top: 66px; left: 50%; transform: translateX(-50%);
+  background: #008080; color: white; padding: 12px 24px; border-radius: 8px;
+  z-index: 1000; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  font-weight: bold; font-size: 15px; width: min(560px, calc(100vw - 32px));
+  text-align: center;
+  animation: bannerPulse 2s infinite;
+}
+@keyframes bannerPulse {
+  0%, 100% { transform: translateX(-50%) scale(1); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3); }
+  50% { transform: translateX(-50%) scale(1.03); box-shadow: 0 6px 22px rgba(0, 128, 128, 0.6); }
+}
+
+.node-group.pulse-onboarding-target { cursor: pointer; }
+.node-group.pulse-onboarding-target .node-circle {
+  animation: nodePulse 1.4s ease-in-out infinite;
+}
+@keyframes nodePulse {
+  0%, 100% { filter: brightness(1); }
+  50% { filter: brightness(1.35) drop-shadow(0 0 12px rgba(0, 128, 128, 0.9)); }
+}
+
 #loading {
   position: fixed; inset: 0; background: var(--bg);
   display: flex; align-items: center; justify-content: center;

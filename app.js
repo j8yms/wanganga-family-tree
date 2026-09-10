@@ -272,7 +272,11 @@ function renderAvatar(g, p, cx, updatedId) {
 
   group.on('click', (event) => {
     event.stopPropagation();
-    showRadialMenu(event, p);
+    if (window.isOnboardingSelectionMode) {
+      handleNodeClickDuringOnboarding(p);
+    } else {
+      showRadialMenu(event, p);
+    }
   });
 
   return group;
@@ -801,6 +805,7 @@ function attachNameAutocomplete(inputId, resultsId, opts) {
       const fatherEl = document.getElementById(inputId.replace('-gikuyu', '-father'));
       if (fatherEl && !fatherEl.value.trim()) fatherEl.value = person.fathers_name || '';
     }
+    if (typeof opts.onPick === 'function') opts.onPick(person);
     input.focus();
   }
 
@@ -1046,6 +1051,9 @@ function openLinkModal(node) {
   document.getElementById('onboard-modal').querySelector('h2').textContent = 'Link: ' + fullName(node);
   document.getElementById('onboard-modal').querySelector('.subtitle').textContent =
     'Choose how to link, then select a person below.';
+  document.getElementById('ob-welcome').style.display = 'none';
+  document.getElementById('ob-search-group').style.display = '';
+  document.getElementById('ob-results').classList.remove('active');
   document.getElementById('ob-search').style.display = 'none';
   document.getElementById('ob-merge').classList.remove('active');
   document.getElementById('ob-new-form').style.display = 'none';
@@ -1140,6 +1148,8 @@ function openUnlinkModal(node) {
 
   document.getElementById('onboard-modal').querySelector('h2').textContent = 'Unlink: ' + fullName(node);
   document.getElementById('onboard-modal').querySelector('.subtitle').textContent = 'Select a relationship to remove:';
+  document.getElementById('ob-welcome').style.display = 'none';
+  document.getElementById('ob-search-group').style.display = '';
   document.getElementById('ob-search').style.display = 'none';
   document.getElementById('ob-merge').classList.remove('active');
   document.getElementById('ob-new-form').style.display = 'none';
@@ -1179,6 +1189,8 @@ async function confirmUnlink(relId) {
 // Onboarding with Autocomplete & Merge
 // ============================================================
 let obSelectedPerson = null;
+let targetRelative = null;
+let obForceNew = false;
 
 function checkOnboarding() {
   const params = new URLSearchParams(window.location.search);
@@ -1199,21 +1211,119 @@ function checkOnboarding() {
 
 function openOnboarding() {
   obSelectedPerson = null;
-  document.getElementById('ob-search').value = '';
-  document.getElementById('ob-search').style.display = '';
-  document.getElementById('ob-results').innerHTML = '';
-  document.getElementById('ob-results').classList.remove('active');
+  targetRelative = null;
+  obForceNew = false;
+  window.isOnboardingSelectionMode = false;
+
+  document.getElementById('ob-modal-title').textContent = 'Welcome to the Wang\'ang\'a Family Tree';
+  document.getElementById('ob-modal-subtitle').textContent = 'Find yourself on the tree to begin.';
+
+  document.getElementById('ob-welcome').style.display = '';
+  document.getElementById('ob-search-group').style.display = 'none';
   document.getElementById('ob-merge').classList.remove('active');
   document.getElementById('ob-new-form').style.display = 'none';
+  document.getElementById('ob-relation-anchor').style.display = 'none';
+
+  document.getElementById('ob-search').value = '';
+  document.getElementById('ob-results').innerHTML = '';
+  document.getElementById('ob-results').classList.remove('active');
   document.getElementById('ob-living').value = 'true';
   syncLivingUI('ob');
   resetLinkFields();
   const sel = document.getElementById('link-type-select');
   if (sel) sel.style.display = 'none';
-  document.querySelector('#onboard-modal h2').textContent = 'Welcome to the Wang\'ang\'a Family Tree';
-  document.querySelector('#onboard-modal .subtitle').textContent = 'Search for your name to join an existing profile, or create a new one.';
   openModal('onboard-modal');
 }
+
+// ============================================================
+// Visual Onboarding Selection Mode
+// ============================================================
+function clearOnboardingSelectionUI() {
+  const banner = document.getElementById('onboarding-helper-banner');
+  if (banner) banner.remove();
+  document.querySelectorAll('.pulse-onboarding-target').forEach(n => n.classList.remove('pulse-onboarding-target'));
+}
+
+// Triggered from the "Got it!" button in the welcome dialog.
+function initiateVisualOnboardingSelection() {
+  closeModal('onboard-modal');
+  window.isOnboardingSelectionMode = true;
+
+  const banner = document.createElement('div');
+  banner.id = 'onboarding-helper-banner';
+  banner.textContent = '👈 Tap on the profile of your closest relative (Father, Mother, Spouse, or Sibling) directly on the tree layout';
+  document.body.appendChild(banner);
+
+  document.querySelectorAll('.node-group').forEach(node => {
+    node.classList.add('pulse-onboarding-target');
+  });
+}
+
+function cancelOnboardingSelection() {
+  window.isOnboardingSelectionMode = false;
+  clearOnboardingSelectionUI();
+}
+
+// A node was clicked while in selection mode: clean up and open the targeted form.
+function handleNodeClickDuringOnboarding(clickedRelative) {
+  if (!clickedRelative) return;
+  cancelOnboardingSelection();
+  openTargetedOnboardingForm(clickedRelative);
+}
+
+// Opens the join form anchored to the selected relative.
+function openTargetedOnboardingForm(relative) {
+  targetRelative = relative;
+  obSelectedPerson = null;
+  obForceNew = false;
+
+  document.getElementById('ob-modal-title').textContent = 'Join the Family Tree';
+  document.getElementById('ob-modal-subtitle').textContent = 'Tell us how you connect to ' + (relative.gikuyu_name || 'the selected person') + ', then add your details.';
+
+  document.getElementById('ob-welcome').style.display = 'none';
+  document.getElementById('ob-search-group').style.display = 'none';
+  document.getElementById('ob-merge').classList.remove('active');
+
+  clearTargetedForm();
+  document.getElementById('ob-relation-label').textContent =
+    'How are you related to ' + (relative.gikuyu_name || 'them') + '?';
+  document.getElementById('ob-relation-anchor').style.display = '';
+  document.getElementById('ob-link-section').style.display = 'none';
+  document.getElementById('ob-new-form').style.display = 'block';
+  openModal('onboard-modal');
+}
+
+function clearTargetedForm() {
+  obForceNew = false;
+  document.getElementById('ob-gikuyu').value = '';
+  document.getElementById('ob-father').value = '';
+  delete document.getElementById('ob-gikuyu').dataset.personId;
+  delete document.getElementById('ob-gikuyu').dataset.pickedName;
+  document.getElementById('ob-other').value = '';
+  document.getElementById('ob-gender').value = 'Male';
+  document.getElementById('ob-birth').value = '';
+  document.getElementById('ob-death').value = '';
+  document.getElementById('ob-living').value = 'true';
+  syncLivingUI('ob');
+  document.getElementById('ob-photo').value = '';
+  delete document.getElementById('ob-photo').dataset.croppedDataUrl;
+  delete document.getElementById('ob-photo').dataset.croppedMime;
+  document.getElementById('ob-photo-preview').src = '';
+  document.getElementById('ob-photo-preview').classList.remove('has-photo');
+  resetLinkFields();
+  document.querySelectorAll('input[name="ob-relation"]').forEach(r => r.checked = false);
+}
+
+function getSelectedRelationValue() {
+  const el = document.querySelector('input[name="ob-relation"]:checked');
+  return el ? el.value : '';
+}
+
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Escape' && window.isOnboardingSelectionMode) {
+    cancelOnboardingSelection();
+  }
+});
 
 document.getElementById('ob-search').addEventListener('input', function() {
   clearTimeout(searchDebounce);
@@ -1276,6 +1386,15 @@ async function onboardSubmitNew() {
     return;
   }
 
+  let relation = '';
+  if (targetRelative) {
+    relation = getSelectedRelationValue();
+    if (!relation) {
+      showToast('Please choose how you are related to ' + (targetRelative.gikuyu_name || 'the selected person'));
+      return;
+    }
+  }
+
   const photo = await savePhotoFrom(document.getElementById('ob-photo'));
   const data = {
     gikuyu_name: gikuyu,
@@ -1291,22 +1410,101 @@ async function onboardSubmitNew() {
     data.mimeType = photo.mimeType;
   }
 
-  if (obSelectedPerson) {
-    data.existing_person_id = obSelectedPerson.person_id;
-    const res = await apiPost(Object.assign({ action: 'mergePerson' }, data));
-    showToast(res.success ? 'Profile claimed and updated!' : 'Error: ' + (res.error || ''));
-  } else {
-    const res = await apiPost(Object.assign({ action: 'createPerson', created_by: currentUserToken }, data));
-    if (res.success) {
-      showToast('Profile created! Start building your family connections.');
-      await linkNewProfileToFamily(res.person_id);
-    } else {
-      showToast('Error: ' + (res.error || ''));
+  // Duplicate guard: typed a name that already exists but never confirmed a merge.
+  if (!obSelectedPerson && !obForceNew) {
+    const dup = persons.find(p =>
+      p.gikuyu_name && p.gikuyu_name.toLowerCase() === gikuyu.toLowerCase() &&
+      p.fathers_name && p.fathers_name.toLowerCase() === fathers.toLowerCase());
+    if (dup) {
+      obSelectedPerson = dup;
+      document.getElementById('ob-merge').classList.add('active');
+      showToast('We found an existing profile matching your name. Would you like to merge your profile details here?');
+      return;
     }
   }
 
+  let userId = null;
+
+  if (obSelectedPerson) {
+    data.existing_person_id = obSelectedPerson.person_id;
+    const res = await apiPost(Object.assign({ action: 'mergePerson' }, data));
+    if (!res.success) {
+      showToast('Error: ' + (res.error || ''));
+      return;
+    }
+    userId = res.person_id || obSelectedPerson.person_id;
+  } else {
+    const res = await apiPost(Object.assign({ action: 'createPerson', created_by: currentUserToken }, data));
+    if (!res.success) {
+      showToast('Error: ' + (res.error || ''));
+      return;
+    }
+    userId = res.person_id;
+  }
+
+  if (targetRelative && relation) {
+    const linkResults = await linkUserToRelative(userId, relation, targetRelative);
+    const baseMsg = obSelectedPerson ? 'Profile merged' : 'Profile created';
+    showToast(baseMsg + ' and linked to ' + (targetRelative.gikuyu_name || 'your relative') +
+      (linkResults.failed > 0 ? ' (' + linkResults.failed + ' links failed)' : ''));
+  } else {
+    showToast(obSelectedPerson ? 'Profile claimed and updated!' : 'Profile created!');
+  }
+
+  targetRelative = null;
+  obSelectedPerson = null;
   closeModal('onboard-modal');
   await loadData();
+}
+
+// Builds the Google Sheets relationship payloads for the selected anchor.
+async function linkUserToRelative(userId, relation, relative) {
+  const done = new Set();
+  let ok = 0, failed = 0;
+  const createLink = async (parentId, childId, relType) => {
+    const key = parentId + '|' + childId + '|' + relType;
+    if (done.has(key)) return;
+    if (relationships.some(r =>
+      String(r.parent_id) === String(parentId) &&
+      String(r.child_id) === String(childId) &&
+      String(r.rel_type) === String(relType))) { done.add(key); return; }
+    done.add(key);
+    const res = await apiPost({
+      action: 'createRelationship', parent_id: parentId, child_id: childId,
+      rel_type: relType, created_by: currentUserToken
+    });
+    if (res && res.success) ok++; else failed++;
+  };
+
+  switch (relation) {
+    case 'parent': {
+      // The selected relative is the user's parent.
+      const relType = (relative.gender === 'Female' || relative.gender === 'F') ? 'Mother-Child' : 'Father-Child';
+      await createLink(relative.person_id, userId, relType);
+      break;
+    }
+    case 'child': {
+      // The selected relative is the user's child.
+      const relType = (document.getElementById('ob-gender').value === 'Female') ? 'Mother-Child' : 'Father-Child';
+      await createLink(userId, relative.person_id, relType);
+      break;
+    }
+    case 'spouse': {
+      // Horizontal spouse bridge row.
+      await createLink(relative.person_id, userId, 'Spouse');
+      break;
+    }
+    case 'sibling': {
+      // Inherit the selected relative's parents so they share a family cluster.
+      const sibParents = relationships.filter(r =>
+        r.child_id === relative.person_id && /father|mother/i.test(r.rel_type || ''));
+      for (const pr of sibParents) {
+        await createLink(pr.parent_id, userId, pr.rel_type);
+      }
+      break;
+    }
+  }
+  return { ok, failed };
 }
 
 function resetLinkFields() {
@@ -1360,6 +1558,7 @@ async function linkNewProfileToFamily(newId) {
 
 function onboardNewProfile() {
   obSelectedPerson = null;
+  obForceNew = true;
   document.getElementById('ob-merge').classList.remove('active');
   resetLinkFields();
   document.getElementById('ob-gikuyu').value = '';
@@ -1383,7 +1582,14 @@ function onboardNewProfile() {
 // ============================================================
 attachNameAutocomplete('pf-gikuyu', 'pf-gikuyu-results', { fillFather: true });
 attachNameAutocomplete('pf-father', 'pf-father-results');
-attachNameAutocomplete('ob-gikuyu', 'ob-gikuyu-results', { fillFather: true });
+attachNameAutocomplete('ob-gikuyu', 'ob-gikuyu-results', {
+  fillFather: true,
+  onPick: (person) => {
+    obSelectedPerson = person;
+    const el = document.getElementById('ob-merge');
+    if (el) el.classList.add('active');
+  }
+});
 attachNameAutocomplete('ob-father', 'ob-father-results');
 attachNameAutocomplete('ob-parent-father', 'ob-parent-father-results');
 attachNameAutocomplete('ob-parent-mother', 'ob-parent-mother-results');

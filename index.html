@@ -142,13 +142,24 @@
 <!-- Onboarding Modal -->
 <div class="modal-overlay" id="onboard-modal">
   <div class="modal">
-    <h2>Welcome to the Wang'ang'a Family Tree</h2>
-    <div class="subtitle">Search for your name to join an existing profile, or create a new one.</div>
-    <div class="form-group autocomplete-wrapper">
+    <h2 id="ob-modal-title">Welcome to the Wang'ang'a Family Tree</h2>
+    <div class="subtitle" id="ob-modal-subtitle">Find yourself on the tree to begin.</div>
+
+    <!-- Welcome / guided picker screen -->
+    <div id="ob-welcome">
+      <p class="ob-welcome-msg">To add yourself or your family, look at the tree screen behind this box, find the person closest to you (like your Father, Mother, or Sibling), and click on their profile circle to begin.</p>
+      <div class="modal-actions" style="justify-content:center">
+        <button class="btn btn-primary" onclick="initiateVisualOnboardingSelection()">Got it! Let me pick from the tree</button>
+      </div>
+    </div>
+
+    <!-- Search (legacy: reused by Link / Unlink flows) -->
+    <div id="ob-search-group" class="form-group autocomplete-wrapper">
       <label>Search Your Name</label>
       <input type="text" id="ob-search" placeholder="Start typing your name..." autocomplete="off">
       <div class="autocomplete-list" id="ob-results"></div>
     </div>
+
     <div class="merge-dialog" id="ob-merge">
       <p>We found an existing profile matching your name. Would you like to <strong>claim this profile</strong> and update its missing details?</p>
       <div class="merge-actions">
@@ -156,7 +167,19 @@
         <button class="btn btn-primary" onclick="onboardMergeProfile()">Yes, Merge</button>
       </div>
     </div>
+
     <div id="ob-new-form" style="display:none">
+      <!-- Contextual relationship anchor -->
+      <div class="form-group" id="ob-relation-anchor" style="display:none">
+        <label id="ob-relation-label">How are you related to this person?</label>
+        <div class="relation-options">
+          <label><input type="radio" name="ob-relation" value="parent"> They are my <strong>Father / Mother</strong></label>
+          <label><input type="radio" name="ob-relation" value="child"> They are my <strong>Child</strong></label>
+          <label><input type="radio" name="ob-relation" value="spouse"> They are my <strong>Spouse / Husband / Wife</strong></label>
+          <label><input type="radio" name="ob-relation" value="sibling"> They are my <strong>Sibling (Brother / Sister)</strong></label>
+        </div>
+      </div>
+
       <div class="form-group">
         <label>Passport Photo</label>
         <img class="photo-preview" id="ob-photo-preview" alt="preview">
@@ -206,27 +229,29 @@
           </select>
         </div>
       </div>
-      <div class="form-group" style="margin-top:12px">
-        <label>Link me to family (optional)</label>
-        <div class="subtitle" style="font-size:12px">Pick people already in the tree so your profile connects to them automatically.</div>
-      </div>
-      <div class="form-row">
-        <div class="form-group autocomplete-wrapper">
-          <label>My Father</label>
-          <input type="text" id="ob-parent-father" placeholder="Search existing people..." autocomplete="off">
-          <div class="autocomplete-list" id="ob-parent-father-results"></div>
+      <div id="ob-link-section" style="display:none">
+        <div class="form-group" style="margin-top:12px">
+          <label>Link me to family (optional)</label>
+          <div class="subtitle" style="font-size:12px">Pick people already in the tree so your profile connects to them automatically.</div>
         </div>
-        <div class="form-group autocomplete-wrapper">
-          <label>My Mother</label>
-          <input type="text" id="ob-parent-mother" placeholder="Search existing people..." autocomplete="off">
-          <div class="autocomplete-list" id="ob-parent-mother-results"></div>
+        <div class="form-row">
+          <div class="form-group autocomplete-wrapper">
+            <label>My Father</label>
+            <input type="text" id="ob-parent-father" placeholder="Search existing people..." autocomplete="off">
+            <div class="autocomplete-list" id="ob-parent-father-results"></div>
+          </div>
+          <div class="form-group autocomplete-wrapper">
+            <label>My Mother</label>
+            <input type="text" id="ob-parent-mother" placeholder="Search existing people..." autocomplete="off">
+            <div class="autocomplete-list" id="ob-parent-mother-results"></div>
+          </div>
         </div>
-      </div>
-      <div class="form-row">
-        <div class="form-group autocomplete-wrapper">
-          <label>My Sibling</label>
-          <input type="text" id="ob-sibling" placeholder="Search existing people..." autocomplete="off">
-          <div class="autocomplete-list" id="ob-sibling-results"></div>
+        <div class="form-row">
+          <div class="form-group autocomplete-wrapper">
+            <label>My Sibling</label>
+            <input type="text" id="ob-sibling" placeholder="Search existing people..." autocomplete="off">
+            <div class="autocomplete-list" id="ob-sibling-results"></div>
+          </div>
         </div>
       </div>
       <div class="modal-actions">
