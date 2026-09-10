@@ -167,6 +167,12 @@ test deployment.
 | place_of_birth | String | Birthplace (geographic location) |
 | place_of_living | String | Current residence / place of living |
 | place_of_death | String | Place of death (deceased only) |
+| birth_qualifier | String | exact, before, during, after (year precision) |
+| birth_month | Integer | Optional birth month 1-12 |
+| birth_day | Integer | Optional birth day 1-31 |
+| death_qualifier | String | exact, before, during, after (year precision) |
+| death_month | Integer | Optional death month 1-12 |
+| death_day | Integer | Optional death day 1-31 |
 
 ### Table B: Relationships
 | Column | Type | Description |

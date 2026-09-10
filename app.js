@@ -678,7 +678,7 @@ function buildLifeSummary(person, counts) {
   const childWord = counts.childrenCount === 1 ? 'child' : 'children';
 
   let s = (birth && !isNaN(birth))
-    ? name + ' was born in ' + birth + (person.place_of_birth ? ' ' + person.place_of_birth : '') + '.'
+    ? name + ' was born ' + datePhrase(person.birth_year, person.birth_qualifier, person.birth_month, person.birth_day) + (person.place_of_birth ? ' in ' + person.place_of_birth : '') + '.'
     : name + ' was born in an unrecorded year.';
 
   if (String(person.is_living).toUpperCase() !== 'FALSE' && person.place_of_living) {
@@ -711,19 +711,82 @@ function switchInfoTab(tab) {
 // ============================================================
 // LifeStory Chronological Timeline
 // ============================================================
+const MONTH_NAMES = ['', 'January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const MONTH_SHORT = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function normalizeQualifier(q) {
+  const v = String(q || '').toLowerCase();
+  return (v === 'before' || v === 'during' || v === 'after') ? v : 'exact';
+}
+
+// Builds a readable date phrase from a year + optional precision (before /
+// during / after) + optional month/day. Examples:
+//   exact + year only        -> "in the year 1930"
+//   exact + month + day      -> "on 14 June 1930"
+//   before + year            -> "before 1930"
+//   during (around) + month  -> "around June 1920"
+//   after + year             -> "after 1950"
+function datePhrase(year, qualifier, month, day) {
+  if (!year) return '';
+  const q = normalizeQualifier(qualifier);
+  const m = parseInt(month, 10);
+  const d = parseInt(day, 10);
+  const monthName = (m >= 1 && m <= 12) ? MONTH_NAMES[m] : '';
+  const hasDay = (d >= 1 && d <= 31);
+  const exact = monthName
+    ? (hasDay ? 'on ' + d + ' ' + monthName + ' ' + year : 'in ' + monthName + ' ' + year)
+    : 'in the year ' + year;
+  if (q === 'before') return 'before ' + exact.replace(/^(on|in) /, '');
+  if (q === 'after') return 'after ' + exact.replace(/^(on|in) /, '');
+  if (q === 'during') return 'around ' + exact;
+  return exact;
+}
+
+// Short marker label for the timeline year pills (e.g. "1930", "~1930", "Bef 1930").
+function dateMarkerLabel(qualifier, month, day, year) {
+  if (!year) return '';
+  const q = normalizeQualifier(qualifier);
+  const m = parseInt(month, 10);
+  const base = (q === 'before') ? 'Bef ' + year : (q === 'after') ? 'Aft ' + year : (q === 'during') ? '~' + year : year;
+  if (q === 'exact' && m >= 1 && m <= 12) return MONTH_SHORT[m] + ' ' + year;
+  return base;
+}
+
+// The profile's known father/mother from the relationships sheet.
+function parentsOf(personId) {
+  const ids = relationships
+    .filter(r => r.child_id === personId && r.rel_type !== 'Spouse')
+    .map(r => r.parent_id);
+  return ids.map(id => persons.find(p => p.person_id === id)).filter(Boolean);
+}
+
+// "born by Kamau and Wanjiku" (or just one parent when only one is known).
+function bornByParents(targetPerson) {
+  const parents = parentsOf(targetPerson.person_id);
+  const father = parents.find(p2 => String(p2.gender).toLowerCase().indexOf('male') !== -1 || /father/i.test(String(p2.gender)));
+  const mother = parents.find(p2 => String(p2.gender).toLowerCase().indexOf('female') !== -1 || /mother/i.test(String(p2.gender)));
+  const main = [father || parents[0], mother].filter(Boolean);
+  if (!main.length) return '';
+  const names = main.map(p3 => p3.gikuyu_name || fullName(p3)).filter(Boolean);
+  return 'born by ' + names.join(' and ');
+}
+
 function generateChronologicalLifeStory(targetPerson, persons, relationships) {
   let events = [];
   const targetId = targetPerson.person_id;
   const live = String(targetPerson.is_living).toUpperCase() === 'TRUE';
 
-  // 1. Core Event: Birth (origin + current residence blended in)
+  // 1. Core Event: Birth (born by parents, qualified date, origin + residence)
   if (targetPerson.birth_year) {
+    const by = bornByParents(targetPerson);
+    const birthPhrase = datePhrase(targetPerson.birth_year, targetPerson.birth_qualifier, targetPerson.birth_month, targetPerson.birth_day);
     const pBirth = targetPerson.place_of_birth ? ' in ' + targetPerson.place_of_birth : '';
     const pLiving = (live && targetPerson.place_of_living) ? ' They currently reside in ' + targetPerson.place_of_living + '.' : '';
     events.push({
       year: parseInt(targetPerson.birth_year, 10),
       title: "Birth",
-      description: `${targetPerson.gikuyu_name} ${targetPerson.fathers_name} ${targetPerson.other_names} was born in the year ${targetPerson.birth_year}${pBirth}.${pLiving}`
+      label: dateMarkerLabel(targetPerson.birth_qualifier, targetPerson.birth_month, targetPerson.birth_day, targetPerson.birth_year),
+      description: `${targetPerson.gikuyu_name} ${targetPerson.fathers_name} ${targetPerson.other_names} was ${by ? by + ' ' : ''}born ${birthPhrase}${pBirth}.${pLiving}`
     });
   }
 
@@ -733,11 +796,13 @@ function generateChronologicalLifeStory(targetPerson, persons, relationships) {
   childLinks.forEach(link => {
     const child = persons.find(p => p.person_id === link.child_id);
     if (child && child.birth_year) {
+      const childPhrase = datePhrase(child.birth_year, child.birth_qualifier, child.birth_month, child.birth_day);
       const childPlace = child.place_of_birth ? ' in ' + child.place_of_birth : '';
       events.push({
         year: parseInt(child.birth_year, 10),
         title: "Birth of child",
-        description: `Their child, ${child.gikuyu_name} ${child.fathers_name} ${child.other_names || ''}, was born in the year ${child.birth_year}${childPlace}.`
+        label: dateMarkerLabel(child.birth_qualifier, child.birth_month, child.birth_day, child.birth_year),
+        description: `Their child, ${child.gikuyu_name} ${child.fathers_name} ${child.other_names || ''}, was born ${childPhrase}${childPlace}.`
       });
     }
   });
@@ -747,26 +812,30 @@ function generateChronologicalLifeStory(targetPerson, persons, relationships) {
   parentLinks.forEach(link => {
     const parent = persons.find(p => p.person_id === link.parent_id);
     if (parent && parent.death_year) {
+      const parentPhrase = datePhrase(parent.death_year, parent.death_qualifier, parent.death_month, parent.death_day);
       const parentDeathPlace = parent.place_of_death ? ' in ' + parent.place_of_death : '';
       events.push({
         year: parseInt(parent.death_year, 10),
         title: `Death of ${parent.gender === 'Male' ? 'father' : 'mother'}`,
-        description: `Their ${parent.gender === 'Male' ? 'father' : 'mother'}, ${parent.gikuyu_name} ${parent.fathers_name}, passed away in the year ${parent.death_year}${parentDeathPlace}.`
+        label: dateMarkerLabel(parent.death_qualifier, parent.death_month, parent.death_day, parent.death_year),
+        description: `Their ${parent.gender === 'Male' ? 'father' : 'mother'}, ${parent.gikuyu_name} ${parent.fathers_name}, passed away ${parentPhrase}${parentDeathPlace}.`
       });
     }
   });
 
-  // 4. Core Event: Death of the target (place + computed age)
+  // 4. Core Event: Death of the target (qualified date + place + computed age)
   if (!live || targetPerson.death_year) {
     const dYear = parseInt(targetPerson.death_year, 10);
     if (dYear) {
+      const deathPhrase = datePhrase(targetPerson.death_year, targetPerson.death_qualifier, targetPerson.death_month, targetPerson.death_day);
       const pDeath = targetPerson.place_of_death ? ' in ' + targetPerson.place_of_death : '';
       const birth = parseInt(targetPerson.birth_year, 10);
       const ageClause = (birth && !isNaN(birth)) ? ' at the age of ' + (dYear - birth) + ' years' : '';
       events.push({
         year: dYear,
         title: "Death",
-        description: `${targetPerson.gikuyu_name} passed away in the year ${targetPerson.death_year}${pDeath}${ageClause}.`
+        label: dateMarkerLabel(targetPerson.death_qualifier, targetPerson.death_month, targetPerson.death_day, targetPerson.death_year),
+        description: `${targetPerson.gikuyu_name} passed away ${deathPhrase}${pDeath}${ageClause}.`
       });
     }
   }
@@ -782,7 +851,7 @@ function renderLifeStoryTimeline(person) {
   }
   return events.map(ev =>
     '<div class="timeline-card">' +
-    '<div class="timeline-year-marker">' + escapeHtml(String(ev.year)) + '</div>' +
+    '<div class="timeline-year-marker">' + escapeHtml(String(ev.label || String(ev.year))) + '</div>' +
     '<div class="timeline-title">' + escapeHtml(ev.title) + '</div>' +
     '<div class="timeline-desc">' + escapeHtml(ev.description) + '</div>' +
     '</div>'
@@ -799,6 +868,7 @@ function populateResearchForm(person) {
   document.getElementById('ir-gender').value = (person.gender === 'Female') ? 'Female' : 'Male';
   document.getElementById('ir-birth').value = person.birth_year || '';
   document.getElementById('ir-death').value = person.death_year || '';
+  fillPeriodFields('ir', person);
   document.getElementById('ir-place-birth').value = person.place_of_birth || '';
   document.getElementById('ir-place-living').value = person.place_of_living || '';
   document.getElementById('ir-place-death').value = person.place_of_death || '';
@@ -849,6 +919,7 @@ async function saveInfoResearch() {
     place_of_death: document.getElementById('ir-place-death').value.trim(),
     is_living: toBool(document.getElementById('ir-living').value)
   };
+  Object.assign(data, readPeriodFields('ir'));
   if (photo) {
     data.base64Image = photo.base64Image;
     data.mimeType = photo.mimeType;
@@ -1224,6 +1295,31 @@ function syncLivingUI(prefix) {
   if (placeWrap) placeWrap.style.display = sel.value === 'true' ? 'none' : '';
 }
 
+// Shared read/write helpers for the qualified date fields (year precision +
+// optional month/day) shared by the pf / ob / ir forms.
+function readPeriodFields(prefix) {
+  const val = id => { const el = document.getElementById(prefix + '-' + id); return el ? el.value : ''; };
+  return {
+    birth_qualifier: val('birth-qualifier') || 'exact',
+    birth_month: val('birth-month'),
+    birth_day: val('birth-day'),
+    death_qualifier: val('death-qualifier') || 'exact',
+    death_month: val('death-month'),
+    death_day: val('death-day')
+  };
+}
+
+function fillPeriodFields(prefix, person) {
+  person = person || {};
+  const set = (id, v) => { const el = document.getElementById(prefix + '-' + id); if (el) el.value = v == null ? '' : String(v); };
+  set('birth-qualifier', person.birth_qualifier || 'exact');
+  set('birth-month', person.birth_month || '');
+  set('birth-day', person.birth_day || '');
+  set('death-qualifier', person.death_qualifier || 'exact');
+  set('death-month', person.death_month || '');
+  set('death-day', person.death_day || '');
+}
+
 function attachNameAutocomplete(inputId, resultsId, opts) {
   opts = opts || {};
   const input = document.getElementById(inputId);
@@ -1304,6 +1400,7 @@ function openAddPersonModal(linkParent, linkType) {
   document.getElementById('pf-gender').value = 'Male';
   document.getElementById('pf-birth').value = '';
   document.getElementById('pf-death').value = '';
+  fillPeriodFields('pf', {});
   document.getElementById('pf-living').value = 'true';
   syncLivingUI('pf');
   document.getElementById('pf-photo').value = '';
@@ -1337,6 +1434,7 @@ function openEditModal(node) {
   document.getElementById('pf-gender').value = node.gender || 'Male';
   document.getElementById('pf-birth').value = node.birth_year || '';
   document.getElementById('pf-death').value = node.death_year || '';
+  fillPeriodFields('pf', node);
   document.getElementById('pf-living').value = isDeceased(node) ? 'false' : 'true';
   syncLivingUI('pf');
   document.getElementById('pf-photo').value = '';
@@ -1391,6 +1489,7 @@ async function savePerson() {
     death_year: document.getElementById('pf-death').value,
     is_living: toBool(document.getElementById('pf-living').value)
   };
+  Object.assign(data, readPeriodFields('pf'));
   if (photo) {
     data.base64Image = photo.base64Image;
     data.mimeType = photo.mimeType;
@@ -1738,6 +1837,7 @@ function clearTargetedForm() {
   document.getElementById('ob-gender').value = 'Male';
   document.getElementById('ob-birth').value = '';
   document.getElementById('ob-death').value = '';
+  fillPeriodFields('ob', {});
   document.getElementById('ob-living').value = 'true';
   syncLivingUI('ob');
   document.getElementById('ob-photo').value = '';
@@ -1820,6 +1920,7 @@ function onboardMergeProfile() {
   document.getElementById('ob-gender').value = obSelectedPerson.gender || 'Male';
   document.getElementById('ob-birth').value = obSelectedPerson.birth_year || '';
   document.getElementById('ob-death').value = obSelectedPerson.death_year || '';
+  fillPeriodFields('ob', obSelectedPerson);
   document.getElementById('ob-living').value = isDeceased(obSelectedPerson) ? 'false' : 'true';
   syncLivingUI('ob');
   document.getElementById('ob-new-form').style.display = 'block';
@@ -1853,6 +1954,7 @@ async function onboardSubmitNew() {
     death_year: document.getElementById('ob-death').value,
     is_living: toBool(document.getElementById('ob-living').value)
   };
+  Object.assign(data, readPeriodFields('ob'));
   if (photo) {
     data.base64Image = photo.base64Image;
     data.mimeType = photo.mimeType;
@@ -2021,6 +2123,7 @@ function onboardNewProfile() {
   document.getElementById('ob-gender').value = 'Male';
   document.getElementById('ob-birth').value = '';
   document.getElementById('ob-death').value = '';
+  fillPeriodFields('ob', {});
   document.getElementById('ob-living').value = 'true';
   syncLivingUI('ob');
   document.getElementById('ob-photo').value = '';

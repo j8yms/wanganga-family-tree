@@ -112,12 +112,148 @@
 
       <div class="form-row">
         <div class="form-group">
+          <label>Birth Reference</label>
+          <select id="pf-birth-qualifier">
+            <option value="exact">Exactly</option>
+            <option value="before">Before (no later than)</option>
+            <option value="during">Around (during)</option>
+            <option value="after">After (no earlier than)</option>
+          </select>
+        </div>
+        <div class="form-group">
           <label>Birth Year</label>
           <input type="number" id="pf-birth" placeholder="YYYY" min="1800" max="2100">
         </div>
-        <div class="form-group" id="pf-death-wrap">
-          <label>Death Year</label>
-          <input type="number" id="pf-death" placeholder="YYYY" min="1800" max="2100">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Birth Month <em style="font-weight:normal">(optional)</em></label>
+          <select id="pf-birth-month">
+            <option value="">Any</option>
+            <option value="1">January</option>
+            <option value="2">February</option>
+            <option value="3">March</option>
+            <option value="4">April</option>
+            <option value="5">May</option>
+            <option value="6">June</option>
+            <option value="7">July</option>
+            <option value="8">August</option>
+            <option value="9">September</option>
+            <option value="10">October</option>
+            <option value="11">November</option>
+            <option value="12">December</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Birth Day <em style="font-weight:normal">(optional)</em></label>
+          <select id="pf-birth-day">
+            <option value="">Any</option>
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+            <option value="5">5</option>
+            <option value="6">6</option>
+            <option value="7">7</option>
+            <option value="8">8</option>
+            <option value="9">9</option>
+            <option value="10">10</option>
+            <option value="11">11</option>
+            <option value="12">12</option>
+            <option value="13">13</option>
+            <option value="14">14</option>
+            <option value="15">15</option>
+            <option value="16">16</option>
+            <option value="17">17</option>
+            <option value="18">18</option>
+            <option value="19">19</option>
+            <option value="20">20</option>
+            <option value="21">21</option>
+            <option value="22">22</option>
+            <option value="23">23</option>
+            <option value="24">24</option>
+            <option value="25">25</option>
+            <option value="26">26</option>
+            <option value="27">27</option>
+            <option value="28">28</option>
+            <option value="29">29</option>
+            <option value="30">30</option>
+            <option value="31">31</option>
+          </select>
+        </div>
+      </div>
+      <div id="pf-death-wrap">
+        <div class="form-row">
+          <div class="form-group">
+            <label>Death Reference</label>
+            <select id="pf-death-qualifier">
+              <option value="exact">Exactly</option>
+              <option value="before">Before (no later than)</option>
+              <option value="during">Around (during)</option>
+              <option value="after">After (no earlier than)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Death Year</label>
+            <input type="number" id="pf-death" placeholder="YYYY" min="1800" max="2100">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Death Month <em style="font-weight:normal">(optional)</em></label>
+            <select id="pf-death-month">
+              <option value="">Any</option>
+              <option value="1">January</option>
+              <option value="2">February</option>
+              <option value="3">March</option>
+              <option value="4">April</option>
+              <option value="5">May</option>
+              <option value="6">June</option>
+              <option value="7">July</option>
+              <option value="8">August</option>
+              <option value="9">September</option>
+              <option value="10">October</option>
+              <option value="11">November</option>
+              <option value="12">December</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Death Day <em style="font-weight:normal">(optional)</em></label>
+            <select id="pf-death-day">
+              <option value="">Any</option>
+              <option value="1">1</option>
+              <option value="2">2</option>
+              <option value="3">3</option>
+              <option value="4">4</option>
+              <option value="5">5</option>
+              <option value="6">6</option>
+              <option value="7">7</option>
+              <option value="8">8</option>
+              <option value="9">9</option>
+              <option value="10">10</option>
+              <option value="11">11</option>
+              <option value="12">12</option>
+              <option value="13">13</option>
+              <option value="14">14</option>
+              <option value="15">15</option>
+              <option value="16">16</option>
+              <option value="17">17</option>
+              <option value="18">18</option>
+              <option value="19">19</option>
+              <option value="20">20</option>
+              <option value="21">21</option>
+              <option value="22">22</option>
+              <option value="23">23</option>
+              <option value="24">24</option>
+              <option value="25">25</option>
+              <option value="26">26</option>
+              <option value="27">27</option>
+              <option value="28">28</option>
+              <option value="29">29</option>
+              <option value="30">30</option>
+              <option value="31">31</option>
+            </select>
+          </div>
         </div>
       </div>
 
@@ -215,12 +351,148 @@
       </div>
       <div class="form-row">
         <div class="form-group">
+          <label>Birth Reference</label>
+          <select id="ob-birth-qualifier">
+            <option value="exact">Exactly</option>
+            <option value="before">Before (no later than)</option>
+            <option value="during">Around (during)</option>
+            <option value="after">After (no earlier than)</option>
+          </select>
+        </div>
+        <div class="form-group">
           <label>Birth Year</label>
           <input type="number" id="ob-birth" placeholder="YYYY" min="1800" max="2100">
         </div>
-        <div class="form-group" id="ob-death-wrap">
-          <label>Death Year</label>
-          <input type="number" id="ob-death" placeholder="YYYY" min="1800" max="2100">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Birth Month <em style="font-weight:normal">(optional)</em></label>
+          <select id="ob-birth-month">
+            <option value="">Any</option>
+            <option value="1">January</option>
+            <option value="2">February</option>
+            <option value="3">March</option>
+            <option value="4">April</option>
+            <option value="5">May</option>
+            <option value="6">June</option>
+            <option value="7">July</option>
+            <option value="8">August</option>
+            <option value="9">September</option>
+            <option value="10">October</option>
+            <option value="11">November</option>
+            <option value="12">December</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Birth Day <em style="font-weight:normal">(optional)</em></label>
+          <select id="ob-birth-day">
+            <option value="">Any</option>
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4">4</option>
+            <option value="5">5</option>
+            <option value="6">6</option>
+            <option value="7">7</option>
+            <option value="8">8</option>
+            <option value="9">9</option>
+            <option value="10">10</option>
+            <option value="11">11</option>
+            <option value="12">12</option>
+            <option value="13">13</option>
+            <option value="14">14</option>
+            <option value="15">15</option>
+            <option value="16">16</option>
+            <option value="17">17</option>
+            <option value="18">18</option>
+            <option value="19">19</option>
+            <option value="20">20</option>
+            <option value="21">21</option>
+            <option value="22">22</option>
+            <option value="23">23</option>
+            <option value="24">24</option>
+            <option value="25">25</option>
+            <option value="26">26</option>
+            <option value="27">27</option>
+            <option value="28">28</option>
+            <option value="29">29</option>
+            <option value="30">30</option>
+            <option value="31">31</option>
+          </select>
+        </div>
+      </div>
+      <div id="ob-death-wrap">
+        <div class="form-row">
+          <div class="form-group">
+            <label>Death Reference</label>
+            <select id="ob-death-qualifier">
+              <option value="exact">Exactly</option>
+              <option value="before">Before (no later than)</option>
+              <option value="during">Around (during)</option>
+              <option value="after">After (no earlier than)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Death Year</label>
+            <input type="number" id="ob-death" placeholder="YYYY" min="1800" max="2100">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Death Month <em style="font-weight:normal">(optional)</em></label>
+            <select id="ob-death-month">
+              <option value="">Any</option>
+              <option value="1">January</option>
+              <option value="2">February</option>
+              <option value="3">March</option>
+              <option value="4">April</option>
+              <option value="5">May</option>
+              <option value="6">June</option>
+              <option value="7">July</option>
+              <option value="8">August</option>
+              <option value="9">September</option>
+              <option value="10">October</option>
+              <option value="11">November</option>
+              <option value="12">December</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Death Day <em style="font-weight:normal">(optional)</em></label>
+            <select id="ob-death-day">
+              <option value="">Any</option>
+              <option value="1">1</option>
+              <option value="2">2</option>
+              <option value="3">3</option>
+              <option value="4">4</option>
+              <option value="5">5</option>
+              <option value="6">6</option>
+              <option value="7">7</option>
+              <option value="8">8</option>
+              <option value="9">9</option>
+              <option value="10">10</option>
+              <option value="11">11</option>
+              <option value="12">12</option>
+              <option value="13">13</option>
+              <option value="14">14</option>
+              <option value="15">15</option>
+              <option value="16">16</option>
+              <option value="17">17</option>
+              <option value="18">18</option>
+              <option value="19">19</option>
+              <option value="20">20</option>
+              <option value="21">21</option>
+              <option value="22">22</option>
+              <option value="23">23</option>
+              <option value="24">24</option>
+              <option value="25">25</option>
+              <option value="26">26</option>
+              <option value="27">27</option>
+              <option value="28">28</option>
+              <option value="29">29</option>
+              <option value="30">30</option>
+              <option value="31">31</option>
+            </select>
+          </div>
         </div>
       </div>
       <div class="form-row">
@@ -350,12 +622,148 @@
         </div>
         <div class="form-row">
           <div class="form-group">
+            <label>Birth Reference</label>
+            <select id="ir-birth-qualifier" class="research-form-field">
+              <option value="exact">Exactly</option>
+              <option value="before">Before (no later than)</option>
+              <option value="during">Around (during)</option>
+              <option value="after">After (no earlier than)</option>
+            </select>
+          </div>
+          <div class="form-group">
             <label>Birth Year</label>
             <input type="number" id="ir-birth" class="research-form-field" placeholder="YYYY" min="1800" max="2100">
           </div>
-          <div class="form-group" id="ir-death-wrap">
-            <label>Death Year</label>
-            <input type="number" id="ir-death" class="research-form-field" placeholder="YYYY" min="1800" max="2100">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Birth Month <em style="font-weight:normal">(optional)</em></label>
+            <select id="ir-birth-month" class="research-form-field">
+              <option value="">Any</option>
+              <option value="1">January</option>
+              <option value="2">February</option>
+              <option value="3">March</option>
+              <option value="4">April</option>
+              <option value="5">May</option>
+              <option value="6">June</option>
+              <option value="7">July</option>
+              <option value="8">August</option>
+              <option value="9">September</option>
+              <option value="10">October</option>
+              <option value="11">November</option>
+              <option value="12">December</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Birth Day <em style="font-weight:normal">(optional)</em></label>
+            <select id="ir-birth-day" class="research-form-field">
+              <option value="">Any</option>
+              <option value="1">1</option>
+              <option value="2">2</option>
+              <option value="3">3</option>
+              <option value="4">4</option>
+              <option value="5">5</option>
+              <option value="6">6</option>
+              <option value="7">7</option>
+              <option value="8">8</option>
+              <option value="9">9</option>
+              <option value="10">10</option>
+              <option value="11">11</option>
+              <option value="12">12</option>
+              <option value="13">13</option>
+              <option value="14">14</option>
+              <option value="15">15</option>
+              <option value="16">16</option>
+              <option value="17">17</option>
+              <option value="18">18</option>
+              <option value="19">19</option>
+              <option value="20">20</option>
+              <option value="21">21</option>
+              <option value="22">22</option>
+              <option value="23">23</option>
+              <option value="24">24</option>
+              <option value="25">25</option>
+              <option value="26">26</option>
+              <option value="27">27</option>
+              <option value="28">28</option>
+              <option value="29">29</option>
+              <option value="30">30</option>
+              <option value="31">31</option>
+            </select>
+          </div>
+        </div>
+        <div id="ir-death-wrap">
+          <div class="form-row">
+            <div class="form-group">
+              <label>Death Reference</label>
+              <select id="ir-death-qualifier" class="research-form-field">
+                <option value="exact">Exactly</option>
+                <option value="before">Before (no later than)</option>
+                <option value="during">Around (during)</option>
+                <option value="after">After (no earlier than)</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Death Year</label>
+              <input type="number" id="ir-death" class="research-form-field" placeholder="YYYY" min="1800" max="2100">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label>Death Month <em style="font-weight:normal">(optional)</em></label>
+              <select id="ir-death-month" class="research-form-field">
+                <option value="">Any</option>
+                <option value="1">January</option>
+                <option value="2">February</option>
+                <option value="3">March</option>
+                <option value="4">April</option>
+                <option value="5">May</option>
+                <option value="6">June</option>
+                <option value="7">July</option>
+                <option value="8">August</option>
+                <option value="9">September</option>
+                <option value="10">October</option>
+                <option value="11">November</option>
+                <option value="12">December</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Death Day <em style="font-weight:normal">(optional)</em></label>
+              <select id="ir-death-day" class="research-form-field">
+                <option value="">Any</option>
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3">3</option>
+                <option value="4">4</option>
+                <option value="5">5</option>
+                <option value="6">6</option>
+                <option value="7">7</option>
+                <option value="8">8</option>
+                <option value="9">9</option>
+                <option value="10">10</option>
+                <option value="11">11</option>
+                <option value="12">12</option>
+                <option value="13">13</option>
+                <option value="14">14</option>
+                <option value="15">15</option>
+                <option value="16">16</option>
+                <option value="17">17</option>
+                <option value="18">18</option>
+                <option value="19">19</option>
+                <option value="20">20</option>
+                <option value="21">21</option>
+                <option value="22">22</option>
+                <option value="23">23</option>
+                <option value="24">24</option>
+                <option value="25">25</option>
+                <option value="26">26</option>
+                <option value="27">27</option>
+                <option value="28">28</option>
+                <option value="29">29</option>
+                <option value="30">30</option>
+                <option value="31">31</option>
+              </select>
+            </div>
           </div>
         </div>
         <div class="form-row">

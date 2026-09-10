@@ -1,7 +1,7 @@
 // ============================================================
 // Google Apps Script Backend - Family Tree API
 // Bound to a Google Sheet with two sheets:
-//   Table A: "Persons" (person_id, gikuyu_name, fathers_name, other_names, gender, is_living, birth_year, photo_url, death_year, created_by, place_of_birth, place_of_living, place_of_death)
+//   Table A: "Persons" (person_id, gikuyu_name, fathers_name, other_names, gender, is_living, birth_year, photo_url, death_year, created_by, place_of_birth, place_of_living, place_of_death, birth_qualifier, birth_month, birth_day, death_qualifier, death_month, death_day)
 //   Table B: "Relationships" (relationship_id, parent_id, child_id, rel_type, spouse_link_id, created_by)
 // ============================================================
 
@@ -19,7 +19,7 @@ function getSpreadsheetId() {
   return String(id).trim();
 }
 
-var PERSON_HEADERS = ['person_id', 'gikuyu_name', 'fathers_name', 'other_names', 'gender', 'is_living', 'birth_year', 'photo_url', 'death_year', 'created_by', 'place_of_birth', 'place_of_living', 'place_of_death'];
+var PERSON_HEADERS = ['person_id', 'gikuyu_name', 'fathers_name', 'other_names', 'gender', 'is_living', 'birth_year', 'photo_url', 'death_year', 'created_by', 'place_of_birth', 'place_of_living', 'place_of_death', 'birth_qualifier', 'birth_month', 'birth_day', 'death_qualifier', 'death_month', 'death_day'];
 var RELATIONSHIP_HEADERS = ['relationship_id', 'parent_id', 'child_id', 'rel_type', 'spouse_link_id', 'created_by'];
 
 // ---- Super-admin override ----
@@ -80,6 +80,12 @@ function validatePersonInput(payload, isUpdate) {
   if (payload.place_of_birth && String(payload.place_of_birth).length > MAX_FIELD_LENGTH) errors.push('place_of_birth too long (max ' + MAX_FIELD_LENGTH + ')');
   if (payload.place_of_living && String(payload.place_of_living).length > MAX_FIELD_LENGTH) errors.push('place_of_living too long (max ' + MAX_FIELD_LENGTH + ')');
   if (payload.place_of_death && String(payload.place_of_death).length > MAX_FIELD_LENGTH) errors.push('place_of_death too long (max ' + MAX_FIELD_LENGTH + ')');
+  if (payload.birth_qualifier !== undefined && payload.birth_qualifier !== '' && ['exact', 'before', 'during', 'after'].indexOf(String(payload.birth_qualifier).toLowerCase()) === -1) errors.push('birth_qualifier must be exact, before, during, or after');
+  if (payload.death_qualifier !== undefined && payload.death_qualifier !== '' && ['exact', 'before', 'during', 'after'].indexOf(String(payload.death_qualifier).toLowerCase()) === -1) errors.push('death_qualifier must be exact, before, during, or after');
+  if (payload.birth_month !== undefined && payload.birth_month !== '' && !(/^\d{1,2}$/.test(String(payload.birth_month)) && Number(payload.birth_month) >= 1 && Number(payload.birth_month) <= 12)) errors.push('birth_month must be 1-12');
+  if (payload.death_month !== undefined && payload.death_month !== '' && !(/^\d{1,2}$/.test(String(payload.death_month)) && Number(payload.death_month) >= 1 && Number(payload.death_month) <= 12)) errors.push('death_month must be 1-12');
+  if (payload.birth_day !== undefined && payload.birth_day !== '' && !(/^\d{1,2}$/.test(String(payload.birth_day)) && Number(payload.birth_day) >= 1 && Number(payload.birth_day) <= 31)) errors.push('birth_day must be 1-31');
+  if (payload.death_day !== undefined && payload.death_day !== '' && !(/^\d{1,2}$/.test(String(payload.death_day)) && Number(payload.death_day) >= 1 && Number(payload.death_day) <= 31)) errors.push('death_day must be 1-31');
   if (payload.base64Image && String(payload.base64Image).length > 50 * 1024 * 1024) errors.push('Image too large (max 50MB)');
   return errors;
 }
@@ -282,7 +288,13 @@ function doPost(e) {
           payload.created_by || 'Anonymous',
           payload.place_of_birth ? String(payload.place_of_birth) : '',
           payload.place_of_living ? String(payload.place_of_living) : '',
-          payload.place_of_death ? String(payload.place_of_death) : ''
+          payload.place_of_death ? String(payload.place_of_death) : '',
+          payload.birth_qualifier ? String(payload.birth_qualifier) : 'exact',
+          payload.birth_month ? String(payload.birth_month) : '',
+          payload.birth_day ? String(payload.birth_day) : '',
+          payload.death_qualifier ? String(payload.death_qualifier) : 'exact',
+          payload.death_month ? String(payload.death_month) : '',
+          payload.death_day ? String(payload.death_day) : ''
         ]);
         return jsonResponse({ success: true, person_id: newId });
 
@@ -305,7 +317,7 @@ function doPost(e) {
           payload.photo_url = handleImageUpload(payload.base64Image, payload.mimeType, (payload.gikuyu_name || "photo") + "_" + payload.person_id);
         }
 
-        var fields = ['gikuyu_name', 'fathers_name', 'other_names', 'gender', 'is_living', 'birth_year', 'photo_url', 'death_year', 'place_of_birth', 'place_of_living', 'place_of_death'];
+        var fields = ['gikuyu_name', 'fathers_name', 'other_names', 'gender', 'is_living', 'birth_year', 'photo_url', 'death_year', 'place_of_birth', 'place_of_living', 'place_of_death', 'birth_qualifier', 'birth_month', 'birth_day', 'death_qualifier', 'death_month', 'death_day'];
         for (var i = 0; i < fields.length; i++) {
           if (payload[fields[i]] !== undefined) {
             var col = headers.indexOf(fields[i]) + 1;
@@ -340,7 +352,7 @@ function doPost(e) {
           }
         }
 
-        var mFields = ['gikuyu_name', 'fathers_name', 'other_names', 'gender', 'is_living', 'birth_year', 'photo_url', 'death_year', 'place_of_birth', 'place_of_living', 'place_of_death'];
+        var mFields = ['gikuyu_name', 'fathers_name', 'other_names', 'gender', 'is_living', 'birth_year', 'photo_url', 'death_year', 'place_of_birth', 'place_of_living', 'place_of_death', 'birth_qualifier', 'birth_month', 'birth_day', 'death_qualifier', 'death_month', 'death_day'];
         for (var m = 0; m < mFields.length; m++) {
           if (payload[mFields[m]] !== undefined && payload[mFields[m]] !== '' && payload[mFields[m]] !== null) {
             var mCol = mHeaders.indexOf(mFields[m]) + 1;
