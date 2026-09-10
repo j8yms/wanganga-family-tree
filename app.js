@@ -102,6 +102,20 @@ function buildSpouseMaps() {
   return { spouseOf, spousesOf, primaryOf };
 }
 
+// Follows the spouse-primary chain so a spouse-of-a-spouse always resolves to
+// the person who actually owns the tree-node cluster. Every spouse pair must
+// render from (and be keyed on) this anchor or the partner is orphaned.
+function resolvePrimaryAnchor(personId) {
+  const { primaryOf } = buildSpouseMaps();
+  let cur = personId;
+  const seen = new Set();
+  while (primaryOf[cur] && !seen.has(cur)) {
+    seen.add(cur);
+    cur = primaryOf[cur];
+  }
+  return cur;
+}
+
 function getPerson(pid) {
   return persons.find(p => p.person_id === pid) || null;
 }
@@ -174,14 +188,14 @@ function buildHierarchy() {
 // layout coordinates, or clipped overlapping avatars survive a redraw.
 // Handles polygamous clusters: when a primary has multiple spouses the
 // rendered cluster is wider, so sibling subtrees must be pushed further.
-function clearGhostNodes(nodes, links, spousesOf) {
+function clearGhostNodes(nodes, links, spouseCountMap) {
   const byId = new Map(nodes.map(n => [n.data.person_id, n]));
 
   // Build a map of how wide each person's rendered cluster is (in px).
   const clusterRadius = {};
   nodes.forEach(n => {
     const pid = n.data.person_id;
-    const numSpouses = (spousesOf[pid] || []).length;
+    const numSpouses = spouseCountMap[pid] || 0;
     clusterRadius[pid] = numSpouses > 1 ? GHOST_SPOUSE_GAP * (Math.ceil(numSpouses / 2) + 1) : GHOST_SPOUSE_GAP;
   });
 
@@ -396,13 +410,34 @@ function renderTree() {
     return;
   }
 
-  const { spousesOf } = buildSpouseMaps();
+  const { primaryOf } = buildSpouseMaps();
+
+  // Normalise spouse pairs onto their resolved anchor. A spouse keyed on a
+  // non-tree node (e.g. a wife clicked straight on) must still render inside
+  // the cluster that actually owns the tree-node position.
+  const renderSpousesOf = {};
+  const spouseCountMap = {};
+  relationships.forEach(r => {
+    if (!r.rel_type || String(r.rel_type).toLowerCase() !== 'spouse') return;
+    let cur = r.parent_id;
+    const seen = new Set();
+    while (primaryOf[cur] && !seen.has(cur)) {
+      seen.add(cur);
+      cur = primaryOf[cur];
+    }
+    const anchor = cur;
+    if (!renderSpousesOf[anchor]) renderSpousesOf[anchor] = [];
+    if (r.child_id !== anchor && renderSpousesOf[anchor].indexOf(r.child_id) === -1) {
+      renderSpousesOf[anchor].push(r.child_id);
+    }
+    spouseCountMap[anchor] = (spouseCountMap[anchor] || 0) + 1;
+  });
 
   const treeLayout = d3.tree()
     .nodeSize([200, 150])
     .separation((a, b) => {
-      const aCount = (spousesOf[a.data.person_id] || []).length;
-      const bCount = (spousesOf[b.data.person_id] || []).length;
+      const aCount = spouseCountMap[a.data.person_id] || 0;
+      const bCount = spouseCountMap[b.data.person_id] || 0;
       const base = a.parent === b.parent ? 1.2 : 1.8;
       const extra = Math.max(aCount, bCount) > 1 ? 1.4 : (aCount > 0 && bCount > 0 ? 0.5 : 0.2);
       return base + extra;
@@ -422,7 +457,7 @@ function renderTree() {
   treeLayout(hierarchyRoot);
 
   // Clear ghost/clipping icons from the layout before rendering fresh nodes.
-  clearGhostNodes(hierarchyRoot.descendants(), relationships, spousesOf);
+  clearGhostNodes(hierarchyRoot.descendants(), relationships, spouseCountMap);
   const nodes = hierarchyRoot.descendants();
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
   nodes.forEach(n => {
@@ -467,7 +502,7 @@ function renderTree() {
   nodeGroups.each(function(d) {
     const data = d.data;
     const g = d3.select(this);
-    const spouseIds = spousesOf[data.person_id] || [];
+    const spouseIds = renderSpousesOf[data.person_id] || [];
     const numSpouses = spouseIds.length;
 
     // Center the primary avatar: shift left when there's exactly 1 spouse
@@ -960,18 +995,26 @@ async function saveInfoResearch() {
     data.photo_url = convertToDirectStreamUrl(photoUrlEntry);
   }
 
-  const res = await apiPost(Object.assign({ action: 'updatePerson' }, data));
-  if (!res.success) {
-    showToast('Error: ' + (res.error || ''));
-    return;
-  }
+  // Immediate feedback + button lock so research saves never look frozen.
+  const saveBtn = document.getElementById('save-details-btn');
+  if (saveBtn) saveBtn.disabled = true;
+  showToast('Saving…');
+  try {
+    const res = await apiPost(Object.assign({ action: 'updatePerson' }, data));
+    if (!res.success) {
+      showToast('Error: ' + (res.error || ''));
+      return;
+    }
 
-  showToast('Profile updated');
-  await loadData();
-  const fresh = persons.find(p => p.person_id === person.person_id) || person;
-  dashboardPerson = fresh;
-  renderInfoDashboard(fresh);
-  switchInfoTab('research');
+    showToast('Profile updated');
+    await loadData();
+    const fresh = persons.find(p => p.person_id === person.person_id) || person;
+    dashboardPerson = fresh;
+    renderInfoDashboard(fresh);
+    switchInfoTab('research');
+  } finally {
+    if (saveBtn) saveBtn.disabled = false;
+  }
 }
 
 // ============================================================
@@ -1511,28 +1554,8 @@ async function savePerson() {
     return;
   }
 
-  const photo = await savePhotoFrom(document.getElementById('pf-photo'));
-
-  const data = {
-    gikuyu_name: gikuyu,
-    fathers_name: fathers,
-    other_names: document.getElementById('pf-other').value.trim(),
-    gender: document.getElementById('pf-gender').value,
-    birth_year: document.getElementById('pf-birth').value,
-    death_year: document.getElementById('pf-death').value,
-    is_living: toBool(document.getElementById('pf-living').value)
-  };
-  Object.assign(data, readPeriodFields('pf'));
-  if (photo) {
-    data.base64Image = photo.base64Image;
-    data.mimeType = photo.mimeType;
-  }
-
-  if (id) {
-    data.person_id = id;
-    const res = await apiPost(Object.assign({ action: 'updatePerson' }, data));
-    showToast(res.success ? 'Person updated' : 'Error: ' + (res.error || ''));
-  } else {
+  // Duplicate gate (synchronous, so it runs while the modal is still open).
+  if (!id) {
     const dup = persons.find(p =>
       p.gikuyu_name && p.gikuyu_name.toLowerCase() === gikuyu.toLowerCase() &&
       p.fathers_name && p.fathers_name.toLowerCase() === fathers.toLowerCase()
@@ -1540,56 +1563,106 @@ async function savePerson() {
     if (dup && !confirm(fullName(dup) + ' already exists in the tree. Create a duplicate anyway?')) {
       return;
     }
-    const res = await apiPost(Object.assign({ action: 'createPerson', created_by: currentUserToken }, data));
-    if (res.success) {
-      const newId = res.person_id;
-      if (linkParentId && linkType === 'parent') {
-        const relation = document.getElementById('pf-relation').value;
-        await apiPost({
-          action: 'createRelationship',
-          parent_id: newId,
-          child_id: linkParentId,
-          rel_type: relation === 'mother' ? 'Mother-Child' : 'Father-Child',
-          created_by: currentUserToken
-        });
-      } else if (linkParentId && linkType === 'child') {
-        await apiPost({
-          action: 'createRelationship',
-          parent_id: linkParentId,
-          child_id: newId,
-          rel_type: data.gender === 'Female' ? 'Mother-Child' : 'Father-Child',
-          created_by: currentUserToken
-        });
-      } else if (linkParentId && linkType === 'sibling') {
-        // Re-link the new person to every parent of the selected sibling, using
-        // the same relationship type (Father-Child / Mother-Child) each parent had.
-        const siblingParents = relationships.filter(r =>
-          r.child_id === linkParentId && /father|mother/i.test(r.rel_type || ''));
-        for (const pr of siblingParents) {
-          await apiPost({
-            action: 'createRelationship',
-            parent_id: pr.parent_id,
-            child_id: newId,
-            rel_type: pr.rel_type,
-            created_by: currentUserToken
-          });
-        }
-      } else if (linkParentId && linkType === 'spouse') {
-        await apiPost({
-          action: 'createRelationship',
-          parent_id: linkParentId,
-          child_id: newId,
-          rel_type: 'Spouse',
-          created_by: currentUserToken
-        });
-      }
-      showToast('Person added');
-    } else {
-      showToast('Error: ' + (res.error || ''));
-    }
   }
 
+  // Close the modal IMMEDIATELY so the UI never appears frozen. The network
+  // work then runs in the background and reports via toast.
   closeModal('person-modal');
+  const saveBtn = document.getElementById('save-person-btn');
+  if (saveBtn) saveBtn.disabled = true;
+  showToast('Saving…');
+
+  try {
+    const photo = await savePhotoFrom(document.getElementById('pf-photo'));
+
+    const data = {
+      gikuyu_name: gikuyu,
+      fathers_name: fathers,
+      other_names: document.getElementById('pf-other').value.trim(),
+      gender: document.getElementById('pf-gender').value,
+      birth_year: document.getElementById('pf-birth').value,
+      death_year: document.getElementById('pf-death').value,
+      is_living: toBool(document.getElementById('pf-living').value)
+    };
+    Object.assign(data, readPeriodFields('pf'));
+    if (photo) {
+      data.base64Image = photo.base64Image;
+      data.mimeType = photo.mimeType;
+    }
+
+    if (id) {
+      data.person_id = id;
+      const res = await apiPost(Object.assign({ action: 'updatePerson' }, data));
+      showToast(res.success ? 'Person updated' : 'Error: ' + (res.error || ''));
+    } else {
+      const res = await apiPost(Object.assign({ action: 'createPerson', created_by: currentUserToken }, data));
+      if (res.success) {
+        const newId = res.person_id;
+        let linked = true;
+        if (linkParentId && linkType === 'parent') {
+          const relation = document.getElementById('pf-relation').value;
+          const lres = await apiPost({
+            action: 'createRelationship',
+            parent_id: newId,
+            child_id: linkParentId,
+            rel_type: relation === 'mother' ? 'Mother-Child' : 'Father-Child',
+            created_by: currentUserToken
+          });
+          linked = lres.success;
+        } else if (linkParentId && linkType === 'child') {
+          const lres = await apiPost({
+            action: 'createRelationship',
+            parent_id: linkParentId,
+            child_id: newId,
+            rel_type: data.gender === 'Female' ? 'Mother-Child' : 'Father-Child',
+            created_by: currentUserToken
+          });
+          linked = lres.success;
+        } else if (linkParentId && linkType === 'sibling') {
+          // Re-link the new person to every parent of the selected sibling, using
+          // the same relationship type (Father-Child / Mother-Child) each parent had.
+          const siblingParents = relationships.filter(r =>
+            r.child_id === linkParentId && /father|mother/i.test(r.rel_type || ''));
+          linked = true;
+          for (const pr of siblingParents) {
+            const lres = await apiPost({
+              action: 'createRelationship',
+              parent_id: pr.parent_id,
+              child_id: newId,
+              rel_type: pr.rel_type,
+              created_by: currentUserToken
+            });
+            if (!lres.success) linked = false;
+          }
+        } else if (linkParentId && linkType === 'spouse') {
+          // Anchor to the primary partner: a spouse must always be keyed on the
+          // person who owns a real tree-node cluster, or they become a root and
+          // jump to the very top of the tree.
+          const anchor = resolvePrimaryAnchor(linkParentId);
+          const lres = await apiPost({
+            action: 'createRelationship',
+            parent_id: anchor,
+            child_id: newId,
+            rel_type: 'Spouse',
+            created_by: currentUserToken
+          });
+          linked = lres.success;
+        }
+
+        if (!linked) {
+          // Roll back so an unlinked person never appears as an orphaned root.
+          await apiPost({ action: 'deletePerson', person_id: newId });
+          showToast('Person added, but linking to the tree failed and was reverted.');
+          return;
+        }
+        showToast('Person added');
+      } else {
+        showToast('Error: ' + (res.error || ''));
+      }
+    }
+  } finally {
+    if (saveBtn) saveBtn.disabled = false;
+  }
   await loadData();
 }
 
@@ -1960,6 +2033,7 @@ function onboardMergeProfile() {
 }
 
 async function onboardSubmitNew() {
+  if (onboardSubmitNew.busy) return;
   const gikuyu = document.getElementById('ob-gikuyu').value.trim();
   const fathers = document.getElementById('ob-father').value.trim();
 
@@ -1977,6 +2051,11 @@ async function onboardSubmitNew() {
     }
   }
 
+  // Immediate feedback + lock to stop double-submits while it saves.
+  onboardSubmitNew.busy = true;
+  showToast('Saving…');
+
+  try {
   const photo = await savePhotoFrom(document.getElementById('ob-photo'));
   const data = {
     gikuyu_name: gikuyu,
@@ -2044,6 +2123,9 @@ async function onboardSubmitNew() {
   obSelectedPerson = null;
   closeModal('onboard-modal');
   await loadData();
+  } finally {
+    onboardSubmitNew.busy = false;
+  }
 }
 
 // Builds the Google Sheets relationship payloads for the selected anchor.
