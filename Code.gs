@@ -7,7 +7,14 @@
 
 var PERSONS_SHEET = 'Persons';
 var RELATIONSHIPS_SHEET = 'Relationships';
-var SPREADSHEET_ID = '1GQCXKJ7hUzDoZtHk8pYuJaaS6D2M3XabOZ44oDst1Bw';
+
+// The spreadsheet can be set via Script Property "SPREADSHEET_ID" (recommended
+// for production, avoids hardcoding) and falls back to this default otherwise.
+var DEFAULT_SPREADSHEET_ID = '1GQCXKJ7hUzDoZtHk8pYuJaaS6D2M3XabOZ44oDst1Bw';
+function getSpreadsheetId() {
+  var viaProp = PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID');
+  return (viaProp && String(viaProp).trim()) ? String(viaProp).trim() : DEFAULT_SPREADSHEET_ID;
+}
 
 var PERSON_HEADERS = ['person_id', 'gikuyu_name', 'fathers_name', 'other_names', 'gender', 'is_living', 'birth_year', 'photo_url', 'death_year', 'created_by'];
 var RELATIONSHIP_HEADERS = ['relationship_id', 'parent_id', 'child_id', 'rel_type', 'spouse_link_id', 'created_by'];
@@ -83,7 +90,7 @@ function generateUUID() {
 }
 
 function getSheet(name) {
-  var ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  var ss = SpreadsheetApp.openById(getSpreadsheetId());
   var sheet = ss.getSheetByName(name);
   if (!sheet) {
     sheet = ss.insertSheet(name);
