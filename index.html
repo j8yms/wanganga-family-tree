@@ -274,6 +274,14 @@
   </div>
 </div>
 
+<!-- Info Dashboard Drawer -->
+<div class="modal-overlay drawer-overlay" id="info-modal" onclick="if(event.target===this)closeModal('info-modal')">
+  <div class="drawer">
+    <button class="drawer-close" onclick="closeModal('info-modal')" title="Close" aria-label="Close">&times;</button>
+    <div id="info-content"></div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <script src="app.js"></script>

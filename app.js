@@ -275,6 +275,14 @@ function renderAvatar(g, p, cx, updatedId) {
     if (window.isOnboardingSelectionMode) {
       handleNodeClickDuringOnboarding(p);
     } else {
+      openInfoDashboard(p, event);
+    }
+  });
+
+  group.on('contextmenu', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!window.isOnboardingSelectionMode) {
       showRadialMenu(event, p);
     }
   });
@@ -543,6 +551,114 @@ function hideRadialMenu() {
 }
 
 document.addEventListener('click', () => hideRadialMenu());
+
+// ============================================================
+// Info Dashboard
+// ============================================================
+let dashboardPerson = null;
+let dashboardAnchor = { clientX: 0, clientY: 0 };
+
+// Opens the side-drawer dashboard for a node clicked in standard view mode.
+function openInfoDashboard(person, event) {
+  if (event) dashboardAnchor = { clientX: event.clientX, clientY: event.clientY };
+  dashboardPerson = person;
+  renderInfoDashboard(person);
+  openModal('info-modal');
+}
+
+function renderInfoDashboard(person) {
+  const stats = calculateVitalStats(person);
+  const counts = aggregateFamilyCounts(person.person_id, relationships, persons);
+  const title = [person.gikuyu_name, person.fathers_name, person.other_names].filter(Boolean).join(' ');
+  const imgUrl = person.photo_url && String(person.photo_url).trim() ? String(person.photo_url).trim() : '';
+  const avatarHtml = imgUrl
+    ? '<img class="info-avatar" src="' + imgUrl + '" alt="' + escapeHtml(title) + '">'
+    : '<div class="info-avatar fallback">' + escapeHtml(String(person.gikuyu_name || '?').charAt(0).toUpperCase()) + '</div>';
+
+  document.getElementById('info-content').innerHTML =
+    '<div class="info-header">' + avatarHtml +
+    '<div>' +
+    '<div class="info-title">' + escapeHtml(title) + '</div>' +
+    '<div class="info-subtitle">' + escapeHtml(String(person.gender || '')) +
+    ' &middot; <span class="id">' + escapeHtml(String(person.person_id)) + '</span></div>' +
+    '</div></div>' +
+    '<div class="info-details">' +
+    '<div class="info-detail-row"><span class="icon">&#128197;</span>' +
+    '<div><div class="label">Timeline</div><div class="value">' + escapeHtml(stats) + '</div></div></div>' +
+    '<div class="info-detail-row"><span class="icon">&#128101;</span>' +
+    '<div><div class="label">Family Size</div><div class="value">Has ' + counts.siblingCount + ' sibling' +
+    (counts.siblingCount === 1 ? '' : 's') + ' and ' + counts.childrenCount + ' child' +
+    (counts.childrenCount === 1 ? '' : 'ren') + '.</div></div></div>' +
+    '<div class="info-detail-row"><span class="icon">&#128141;</span>' +
+    '<div><div class="label">Marriages</div><div class="value">' +
+    (counts.spousesList.length > 0 ? escapeHtml('Married to ' + counts.spousesList.join(', ')) : 'No marriage records loaded') +
+    '</div></div></div>' +
+    '</div>' +
+    '<div class="info-manage"><button class="btn btn-ghost" onclick="openRadialFromDashboard()">Manage Profile</button></div>';
+}
+
+// Re-opens the radial action menu at the node's last click position so the
+// original add/link/unlink/edit/delete actions stay reachable from the drawer.
+function openRadialFromDashboard() {
+  closeModal('info-modal');
+  setTimeout(() => {
+    if (dashboardPerson) showRadialMenu(dashboardAnchor, dashboardPerson);
+  }, 80);
+}
+
+function calculateVitalStats(person) {
+  const currentYear = 2026;
+  const birth = parseInt(person.birth_year, 10);
+  const death = parseInt(person.death_year, 10);
+  const isLiving = String(person.is_living).toUpperCase() === "TRUE";
+
+  // Case 1: Missing birth year data
+  if (!birth || isNaN(birth)) {
+    return "Birth year unrecorded.";
+  }
+
+  // Case 2: Deceased relative
+  if (!isLiving || (death && !isNaN(death))) {
+    if (death && !isNaN(death)) {
+      const ageAtDeath = death - birth;
+      return `Born in ${birth}. Passed away at ${ageAtDeath} years of age in the year ${death}.`;
+    }
+    return `Born in ${birth}. (Deceased, year of death unrecorded).`;
+  }
+
+  // Case 3: Living relative
+  const currentAge = currentYear - birth;
+  return `Born in ${birth}. Is ${currentAge} years old.`;
+}
+
+function aggregateFamilyCounts(targetPersonId, relationships, persons) {
+  // 1. Calculate Children Count (Excluding spouse relationship rows)
+  const childrenLinks = relationships.filter(r => r.parent_id === targetPersonId && r.rel_type !== "Spouse");
+
+  // 2. Identify Parents to extract Sibling lists accurately
+  const parentLinks = relationships.filter(r => r.child_id === targetPersonId && r.rel_type !== "Spouse");
+  const parentIds = parentLinks.map(p => p.parent_id);
+
+  let siblingIds = new Set();
+  parentIds.forEach(pId => {
+    const siblings = relationships.filter(r => r.parent_id === pId && r.child_id !== targetPersonId && r.rel_type !== "Spouse");
+    siblings.forEach(s => siblingIds.add(s.child_id));
+  });
+
+  // 3. Identify and name current Spouses
+  const spouseLinks = relationships.filter(r => (r.parent_id === targetPersonId || r.child_id === targetPersonId) && r.rel_type === "Spouse");
+  const spouseNames = spouseLinks.map(link => {
+    const spouseId = link.parent_id === targetPersonId ? link.child_id : link.parent_id;
+    const spouseObj = persons.find(p => p.person_id === spouseId);
+    return spouseObj ? `${spouseObj.gikuyu_name} ${spouseObj.fathers_name}`.trim() : null;
+  }).filter(Boolean);
+
+  return {
+    childrenCount: childrenLinks.length,
+    siblingCount: siblingIds.size,
+    spousesList: spouseNames
+  };
+}
 
 // ============================================================
 // Modal Helpers
