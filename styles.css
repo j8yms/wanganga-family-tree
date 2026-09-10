@@ -343,16 +343,18 @@ svg { width: 100%; height: 100%; }
 .relation-options input { accent-color: var(--accent); }
 
 #onboarding-helper-banner {
-  position: fixed; top: 66px; left: 50%; transform: translateX(-50%);
-  background: #008080; color: white; padding: 12px 24px; border-radius: 8px;
-  z-index: 1000; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-  font-weight: bold; font-size: 15px; width: min(560px, calc(100vw - 32px));
-  text-align: center;
+  position: fixed; top: 10px; left: 50%; transform: translateX(-50%);
+  background: rgba(0, 128, 128, 0.95); color: #ffffff;
+  padding: 6px 16px; border-radius: 30px;
+  z-index: 9999; box-shadow: 0 4px 10px rgba(0,0,0,0.4);
+  border: 1px solid rgba(255,255,255,0.2);
+  font-weight: 600; font-size: 13px;
+  white-space: nowrap;
   animation: bannerPulse 2s infinite;
 }
 @keyframes bannerPulse {
-  0%, 100% { transform: translateX(-50%) scale(1); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3); }
-  50% { transform: translateX(-50%) scale(1.03); box-shadow: 0 6px 22px rgba(0, 128, 128, 0.6); }
+  0%, 100% { transform: translateX(-50%) scale(1); box-shadow: 0 4px 10px rgba(0,0,0,0.4); }
+  50% { transform: translateX(-50%) scale(1.03); box-shadow: 0 6px 18px rgba(0,128,128,0.5); }
 }
 
 .node-group.pulse-onboarding-target { cursor: pointer; }

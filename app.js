@@ -4,7 +4,6 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbyK7Q4PGh6jSmNgN1NaBlgJnj-IkkduiqleToZjC7F2vGodtGO9RjN498QGvrgf1xykjw/exec';
 const SPOUSE_GAP = 70;
 const GHOST_SPOUSE_GAP = 140;
-const GHOST_PUSH_RANGE = 200;
 const GHOST_SIBLING_SHIFT = 180;
 
 // Anonymous, device-scoped tracking token used to tag entries a user creates so
@@ -90,14 +89,17 @@ async function loadData() {
 // ============================================================
 function buildSpouseMaps() {
   const spouseOf = {};
+  const spousesOf = {};
   const primaryOf = {};
   relationships.forEach(r => {
     if (r.rel_type && String(r.rel_type).toLowerCase() === 'spouse') {
       spouseOf[r.parent_id] = r.child_id;
+      if (!spousesOf[r.parent_id]) spousesOf[r.parent_id] = [];
+      spousesOf[r.parent_id].push(r.child_id);
       primaryOf[r.child_id] = r.parent_id;
     }
   });
-  return { spouseOf, primaryOf };
+  return { spouseOf, spousesOf, primaryOf };
 }
 
 function getPerson(pid) {
@@ -170,8 +172,18 @@ function buildHierarchy() {
 // ============================================================
 // Runs right before the node rendering cycle so no phantom icons, virtual
 // layout coordinates, or clipped overlapping avatars survive a redraw.
-function clearGhostNodes(nodes, links) {
+// Handles polygamous clusters: when a primary has multiple spouses the
+// rendered cluster is wider, so sibling subtrees must be pushed further.
+function clearGhostNodes(nodes, links, spousesOf) {
   const byId = new Map(nodes.map(n => [n.data.person_id, n]));
+
+  // Build a map of how wide each person's rendered cluster is (in px).
+  const clusterRadius = {};
+  nodes.forEach(n => {
+    const pid = n.data.person_id;
+    const numSpouses = (spousesOf[pid] || []).length;
+    clusterRadius[pid] = numSpouses > 1 ? GHOST_SPOUSE_GAP * (Math.ceil(numSpouses / 2) + 1) : GHOST_SPOUSE_GAP;
+  });
 
   links.forEach(link => {
     if (!link.rel_type || String(link.rel_type).toLowerCase() !== 'spouse') return;
@@ -182,16 +194,17 @@ function clearGhostNodes(nodes, links) {
     // Lock both partners to the exact same horizontal baseline.
     spouseNode.y = primaryNode.y;
 
-    // Enforce a strict 140px horizontal margin between the partners.
+    // Enforce a strict horizontal margin between the partners.
     spouseNode.x = primaryNode.x + GHOST_SPOUSE_GAP;
 
     // PREVENT THE GHOST ICON: push any overlapping same-tier sibling nodes
-    // completely out of this cluster's footprint, moving each conflicting
-    // subtree as one block so parent-child edges stay connected.
+    // completely out of this cluster's footprint. The push range accounts for
+    // the extra width of polygamous clusters (multiple spouses).
+    const pushNeeded = clusterRadius[link.parent_id] || GHOST_SPOUSE_GAP;
     nodes.forEach(otherNode => {
       if (otherNode === primaryNode || otherNode === spouseNode) return;
       if (otherNode.y !== primaryNode.y) return;
-      if (Math.abs(otherNode.x - primaryNode.x) < GHOST_PUSH_RANGE) {
+      if (Math.abs(otherNode.x - primaryNode.x) < pushNeeded + 60) {
         shiftSubtree(otherNode, GHOST_SIBLING_SHIFT);
       }
     });
@@ -383,15 +396,16 @@ function renderTree() {
     return;
   }
 
-  const { spouseOf } = buildSpouseMaps();
+  const { spousesOf } = buildSpouseMaps();
 
   const treeLayout = d3.tree()
     .nodeSize([200, 150])
     .separation((a, b) => {
-      const wed = d => d.data && spouseOf[d.data.person_id] !== undefined;
-      const aWed = wed(a), bWed = wed(b);
+      const aCount = (spousesOf[a.data.person_id] || []).length;
+      const bCount = (spousesOf[b.data.person_id] || []).length;
       const base = a.parent === b.parent ? 1.2 : 1.8;
-      return base + (aWed && bWed ? 0.5 : 0.2);
+      const extra = Math.max(aCount, bCount) > 1 ? 1.4 : (aCount > 0 && bCount > 0 ? 0.5 : 0.2);
+      return base + extra;
     });
 
   const hierarchyRoot = d3.hierarchy(root);
@@ -408,7 +422,7 @@ function renderTree() {
   treeLayout(hierarchyRoot);
 
   // Clear ghost/clipping icons from the layout before rendering fresh nodes.
-  clearGhostNodes(hierarchyRoot.descendants(), relationships);
+  clearGhostNodes(hierarchyRoot.descendants(), relationships, spousesOf);
   const nodes = hierarchyRoot.descendants();
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
   nodes.forEach(n => {
@@ -453,19 +467,13 @@ function renderTree() {
   nodeGroups.each(function(d) {
     const data = d.data;
     const g = d3.select(this);
-    const spouseId = spouseOf[data.person_id];
-    const spouse = spouseId ? getPerson(spouseId) : null;
+    const spouseIds = spousesOf[data.person_id] || [];
+    const numSpouses = spouseIds.length;
 
-    if (spouse) {
-      g.append('line')
-        .attr('class', 'spouse-bridge')
-        .attr('x1', -SPOUSE_GAP + 32)
-        .attr('y1', 0)
-        .attr('x2', SPOUSE_GAP - 32)
-        .attr('y2', 0);
-    }
-
-    const primaryCx = spouse ? -SPOUSE_GAP : 0;
+    // Center the primary avatar: shift left when there's exactly 1 spouse
+    // (existing behavior), otherwise keep at 0 and let alternating wives
+    // spread symmetrically around it.
+    const primaryCx = numSpouses === 1 ? -SPOUSE_GAP : 0;
     const pid1 = data.person_id.replace(/[^a-zA-Z0-9_-]/g, '') + '_' + (attrs.count++);
     renderAvatar(g, data, primaryCx, pid1);
     renderLabels(g, data, primaryCx);
@@ -478,19 +486,39 @@ function renderTree() {
         .attr('r', 6);
     }
 
-    if (spouse) {
+    // Render each spouse: wife 0 → right, wife 1 → left, wife 2 → further
+    // right, etc.  This alternation prevents multiple horizontal spouse lines
+    // from stacking on top of each other and keeps the cluster centred.
+    spouseIds.forEach((sid, i) => {
+      const spouse = getPerson(sid);
+      if (!spouse) return;
+      let offset;
+      if (numSpouses === 1) {
+        offset = SPOUSE_GAP;
+      } else {
+        const side = (i % 2 === 0) ? 1 : -1;
+        const tier = Math.floor(i / 2) + 1;
+        offset = side * GHOST_SPOUSE_GAP * tier;
+      }
+      const dir = offset > primaryCx ? 1 : -1;
+      g.append('line')
+        .attr('class', 'spouse-bridge')
+        .attr('x1', primaryCx + dir * 32)
+        .attr('y1', 0)
+        .attr('x2', offset - dir * 32)
+        .attr('y2', 0);
       const pid2 = spouse.person_id.replace(/[^a-zA-Z0-9_-]/g, '') + '_' + (attrs.count++);
-      const sg = renderAvatar(g, spouse, SPOUSE_GAP, pid2);
-      renderLabels(g, spouse, SPOUSE_GAP);
+      const sg = renderAvatar(g, spouse, offset, pid2);
+      renderLabels(g, spouse, offset);
       if (!isDeceased(spouse)) {
         g.append('circle')
           .attr('class', 'living-dot')
-          .attr('cx', SPOUSE_GAP + 24)
+          .attr('cx', offset + 24)
           .attr('cy', -26)
           .attr('r', 6);
       }
       sg.raise();
-    }
+    });
 
     // Congestion toggle badge: appears on the primary avatar's bottom rim when
     // this cluster has a child branch. Shows "−" when the branch is in view
@@ -1790,7 +1818,7 @@ function initiateVisualOnboardingSelection() {
 
   const banner = document.createElement('div');
   banner.id = 'onboarding-helper-banner';
-  banner.textContent = '👈 Tap on the profile of your closest relative (Father, Mother, Spouse, or Sibling) directly on the tree layout';
+  banner.textContent = '👆 Tap your closest relative (Father, Mother, or Spouse) on the tree';
   document.body.appendChild(banner);
 
   document.querySelectorAll('.node-group').forEach(node => {
