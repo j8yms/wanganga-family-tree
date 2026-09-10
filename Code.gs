@@ -8,24 +8,31 @@
 var PERSONS_SHEET = 'Persons';
 var RELATIONSHIPS_SHEET = 'Relationships';
 
-// The spreadsheet can be set via Script Property "SPREADSHEET_ID" (recommended
-// for production, avoids hardcoding) and falls back to this default otherwise.
-var DEFAULT_SPREADSHEET_ID = '1GQCXKJ7hUzDoZtHk8pYuJaaS6D2M3XabOZ44oDst1Bw';
+// REDACTED: the spreadsheet ID is NOT stored in this file. It is read from the
+// Script Property "SPREADSHEET_ID". Set it once in Project Settings > Script
+// Properties (key: SPREADSHEET_ID, value: your Google Sheet ID) before running.
 function getSpreadsheetId() {
-  var viaProp = PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID');
-  return (viaProp && String(viaProp).trim()) ? String(viaProp).trim() : DEFAULT_SPREADSHEET_ID;
+  var id = PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID');
+  if (!id || !String(id).trim()) {
+    throw new Error('SPREADSHEET_ID not configured. Go to Project Settings > Script Properties and add key SPREADSHEET_ID with your Google Sheet ID.');
+  }
+  return String(id).trim();
 }
 
 var PERSON_HEADERS = ['person_id', 'gikuyu_name', 'fathers_name', 'other_names', 'gender', 'is_living', 'birth_year', 'photo_url', 'death_year', 'created_by'];
 var RELATIONSHIP_HEADERS = ['relationship_id', 'parent_id', 'child_id', 'rel_type', 'spouse_link_id', 'created_by'];
 
 // ---- Super-admin override ----
-// The admin token is stored in Script Properties (not hardcoded) so it can be
-// changed at any time without editing source code. Use setAdminToken() below
-// or the Apps Script console: Properties > Script Properties > add key
-// "SUPERADMIN_TOKEN" with your secret value (min 8 chars).
+// The admin token is read from the Script Property "SUPERADMIN_TOKEN" so you
+// can rotate it anytime with no redeploy. For a quick start it falls back to
+// DEFAULT_SUPERADMIN_TOKEN below; once you set the property that value wins.
+// **IMPORTANT:** delete DEFAULT_SUPERADMIN_TOKEN as soon as your Script
+// Property is configured, so the secret no longer lives in source code.
+var DEFAULT_SUPERADMIN_TOKEN = 'Kenya254';
+
 function getSuperAdminToken() {
-  return PropertiesService.getScriptProperties().getProperty('SUPERADMIN_TOKEN') || '';
+  var props = PropertiesService.getScriptProperties().getProperty('SUPERADMIN_TOKEN');
+  return (props && String(props).trim()) ? String(props).trim() : DEFAULT_SUPERADMIN_TOKEN;
 }
 
 function setAdminToken(newToken) {

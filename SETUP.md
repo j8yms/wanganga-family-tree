@@ -24,17 +24,50 @@ Google Drive folder                ->  photo storage (auto-created, public)
 1. In your spreadsheet, go to **Extensions > Apps Script**
 2. Delete any default code in `Code.gs`
 3. Copy the entire contents of `Code.gs` from this project into the editor
-4. **Set your spreadsheet ID** (Script Editor > Project Settings or `Code.gs` line 10)
-5. **Set your admin token** via the Apps Script console:
-   - **Project Settings > Script Properties > Add**:
-     - Key: `SUPERADMIN_TOKEN`
-     - Value: a secret code at least 8 chars long (e.g. `kQ8#zW?e2!vR9@dX`)
-6. Click **Save** (Ctrl+S)
-7. Click **Run** > select `init` > click **Run** to initialize the sheets
-8. When prompted, click **Review Permissions** and authorize the script
 
-To change the admin token later, edit the Script Property, or use the app's
-Admin button to unlock, then call the `setAdminToken` action.
+### Configure the two Script Properties (required)
+
+Both secrets live in **Script Properties**, never in source code:
+
+1. In the Apps Script editor, open **Project Settings** (gear icon)
+2. Scroll to **Script properties** > click **Add property** twice:
+
+   | Key | Value |
+   |-----|-------|
+   | `SPREADSHEET_ID` | The ID from your spreadsheet URL (see below) |
+   | `SUPERADMIN_TOKEN` | Any secret of 8+ characters |
+
+3. Click **Save properties**
+
+**Where to find your Spreadsheet ID:** open your Google Sheet and look at the
+URL:
+```
+https://docs.google.com/spreadsheets/d/1GQCXKJ7hUzDoZtHk8pYuJaaS6D2M3XabOZ44oDst1Bw/edit
+                     └────────────────────────────────────────────────────┘
+                       THIS part between /d/ and /edit is the ID
+```
+
+> **Redaction note:** the spreadsheet ID is *not* in `Code.gs` anymore. The
+> script throws a clear "SPREADSHEET_ID not configured" error until you add it.
+>
+> For the admin token, `Code.gs` currently carries a temporary fallback of
+> `Kenya254` so the app works immediately. **Once your `SUPERADMIN_TOKEN`
+> property is set, the property value is used and you can delete the
+> `DEFAULT_SUPERADMIN_TOKEN` line from `Code.gs`.**
+
+### Finish setup
+
+4. Click **Save** (Ctrl+S)
+5. Click **Run** > select `init` > click **Run** to initialize the sheets
+6. When prompted, click **Review Permissions** and authorize the script
+
+### Changing the admin token later (no redeploy needed)
+
+- **From the Apps Script console:** Project Settings > Script Properties >
+  edit the `SUPERADMIN_TOKEN` value > Save.
+- **From the app:** unlock Admin with the current code, then call the
+  `setAdminToken` POST action with `{ admin_token: "<current>", new_token: "<new>" }`.
+  The config then updates automatically.
 
 ## Step 3: Deploy as Web App (API)
 
