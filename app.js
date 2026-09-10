@@ -67,7 +67,12 @@ async function apiPost(payload) {
 // ============================================================
 async function loadData() {
   if (!schemaReady) {
-    await apiGet('init');
+    try {
+      if (!localStorage.getItem('wanganga_schema_ok')) {
+        await apiGet('init');
+        localStorage.setItem('wanganga_schema_ok', '1');
+      }
+    } catch (e) { /* ignore — init is best-effort */ }
     schemaReady = true;
   }
   const data = await apiGet('getAll');

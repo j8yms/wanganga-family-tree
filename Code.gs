@@ -123,17 +123,15 @@ function getSheet(name) {
 function ensureSchema() {
   var pSheet = getSheet(PERSONS_SHEET);
   var pCount = pSheet.getLastColumn();
-  for (var i = 0; i < PERSON_HEADERS.length; i++) {
-    if (i >= pCount) {
-      pSheet.getRange(1, i + 1).setValue(PERSON_HEADERS[i]);
-    }
+  if (pCount >= PERSON_HEADERS.length) return;
+  for (var i = pCount; i < PERSON_HEADERS.length; i++) {
+    pSheet.getRange(1, i + 1).setValue(PERSON_HEADERS[i]);
   }
   var rSheet = getSheet(RELATIONSHIPS_SHEET);
   var rCount = rSheet.getLastColumn();
-  for (var j = 0; j < RELATIONSHIP_HEADERS.length; j++) {
-    if (j >= rCount) {
-      rSheet.getRange(1, j + 1).setValue(RELATIONSHIP_HEADERS[j]);
-    }
+  if (rCount >= RELATIONSHIP_HEADERS.length) return;
+  for (var j = rCount; j < RELATIONSHIP_HEADERS.length; j++) {
+    rSheet.getRange(1, j + 1).setValue(RELATIONSHIP_HEADERS[j]);
   }
 }
 
@@ -213,9 +211,13 @@ function doGet(e) {
   try {
     switch (action) {
       case 'init':
-        // One-time setup: add new columns and ensure the photo folder exists
+        var props = PropertiesService.getScriptProperties();
+        if (props.getProperty('SCHEMA_OK') === '1') {
+          return jsonResponse({ success: true, message: 'Already initialised' });
+        }
         ensureSchema();
         initPhotoFolder();
+        props.setProperty('SCHEMA_OK', '1');
         return jsonResponse({
           success: true,
           message: 'Schema ensured and photo folder ready'
@@ -318,13 +320,20 @@ function doPost(e) {
         }
 
         var fields = ['gikuyu_name', 'fathers_name', 'other_names', 'gender', 'is_living', 'birth_year', 'photo_url', 'death_year', 'place_of_birth', 'place_of_living', 'place_of_death', 'birth_qualifier', 'birth_month', 'birth_day', 'death_qualifier', 'death_month', 'death_day'];
+        var updates = [];
         for (var i = 0; i < fields.length; i++) {
           if (payload[fields[i]] !== undefined) {
-            var col = headers.indexOf(fields[i]) + 1;
-            if (col > 0) {
-              pSheet.getRange(rowNum, col).setValue(payload[fields[i]]);
-            }
+            var col = headers.indexOf(fields[i]);
+            if (col !== -1) updates.push({ col: col, value: payload[fields[i]] });
           }
+        }
+        if (updates.length > 0) {
+          var range = pSheet.getRange(rowNum, 1, 1, headers.length);
+          var rowVals = range.getValues()[0];
+          for (var u = 0; u < updates.length; u++) {
+            rowVals[updates[u].col] = updates[u].value;
+          }
+          range.setValues([rowVals]);
         }
         return jsonResponse({ success: true });
 
@@ -353,17 +362,26 @@ function doPost(e) {
         }
 
         var mFields = ['gikuyu_name', 'fathers_name', 'other_names', 'gender', 'is_living', 'birth_year', 'photo_url', 'death_year', 'place_of_birth', 'place_of_living', 'place_of_death', 'birth_qualifier', 'birth_month', 'birth_day', 'death_qualifier', 'death_month', 'death_day'];
+        var mUpdates = [];
         for (var m = 0; m < mFields.length; m++) {
           if (payload[mFields[m]] !== undefined && payload[mFields[m]] !== '' && payload[mFields[m]] !== null) {
-            var mCol = mHeaders.indexOf(mFields[m]) + 1;
-            if (mCol > 0) {
-              var mCurrent = mRowValues[mCol - 1];
+            var mCol = mHeaders.indexOf(mFields[m]);
+            if (mCol !== -1) {
+              var mCurrent = mRowValues[mCol];
               var mBlank = mCurrent === '' || mCurrent === null || mCurrent === undefined;
               if (mIsOwnerOrAdmin || mBlank) {
-                mSheet.getRange(mRow, mCol).setValue(payload[mFields[m]]);
+                mUpdates.push({ col: mCol, value: payload[mFields[m]] });
               }
             }
           }
+        }
+        if (mUpdates.length > 0) {
+          var mRange = mSheet.getRange(mRow, 1, 1, mHeaders.length);
+          var mRowVals = mRange.getValues()[0];
+          for (var mu = 0; mu < mUpdates.length; mu++) {
+            mRowVals[mUpdates[mu].col] = mUpdates[mu].value;
+          }
+          mRange.setValues([mRowVals]);
         }
         return jsonResponse({ success: true, person_id: payload.existing_person_id, claimed: !mIsOwnerOrAdmin });
 
