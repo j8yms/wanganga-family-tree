@@ -274,7 +274,7 @@ function doPost(e) {
           payload.gender || 'Male',
           payload.is_living !== undefined ? payload.is_living : true,
           payload.birth_year || '',
-          uploadedUrl,
+          payload.photo_url ? String(payload.photo_url) : uploadedUrl,
           payload.death_year || '',
           payload.created_by || 'Anonymous'
         ]);

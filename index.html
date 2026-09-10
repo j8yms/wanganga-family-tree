@@ -184,6 +184,8 @@
         <label>Passport Photo</label>
         <img class="photo-preview" id="ob-photo-preview" alt="preview">
         <input type="file" id="ob-photo" accept="image/*" onchange="handlePhotoSelect(this, 'ob-photo-preview')">
+        <label style="margin-top:10px">Or paste a Google Drive photo link</label>
+        <input type="text" id="ob-photo-url" placeholder="https://drive.google.com/file/d/..." autocomplete="off">
       </div>
       <div class="form-row">
         <div class="form-group autocomplete-wrapper">
@@ -306,30 +308,33 @@
     </div>
 
     <div class="info-panel" id="panel-research" style="display:none">
+      <div id="research-security-notice"></div>
       <form id="info-research-form" onsubmit="return false;">
         <div class="form-group">
           <label>Passport Photo</label>
           <img class="photo-preview" id="ir-photo-preview" alt="preview">
-          <input type="file" id="ir-photo" accept="image/*" onchange="handlePhotoSelect(this, 'ir-photo-preview')">
+          <input type="file" id="ir-photo" class="research-form-field" accept="image/*" onchange="handlePhotoSelect(this, 'ir-photo-preview')">
+          <label style="margin-top:10px">Or paste a Google Drive photo link</label>
+          <input type="text" id="ir-photo-url" class="research-form-field" placeholder="https://drive.google.com/file/d/..." autocomplete="off">
         </div>
         <div class="form-row">
           <div class="form-group">
             <label>Gikuyu Name</label>
-            <input type="text" id="ir-gikuyu" autocomplete="off">
+            <input type="text" id="ir-gikuyu" class="research-form-field" autocomplete="off">
           </div>
           <div class="form-group">
             <label>Father's Name</label>
-            <input type="text" id="ir-father" autocomplete="off">
+            <input type="text" id="ir-father" class="research-form-field" autocomplete="off">
           </div>
         </div>
         <div class="form-row">
           <div class="form-group">
             <label>Other Names</label>
-            <input type="text" id="ir-other">
+            <input type="text" id="ir-other" class="research-form-field">
           </div>
           <div class="form-group">
             <label>Gender</label>
-            <select id="ir-gender">
+            <select id="ir-gender" class="research-form-field">
               <option value="Male">Male</option>
               <option value="Female">Female</option>
             </select>
@@ -338,24 +343,25 @@
         <div class="form-row">
           <div class="form-group">
             <label>Birth Year</label>
-            <input type="number" id="ir-birth" placeholder="YYYY" min="1800" max="2100">
+            <input type="number" id="ir-birth" class="research-form-field" placeholder="YYYY" min="1800" max="2100">
           </div>
           <div class="form-group" id="ir-death-wrap">
             <label>Death Year</label>
-            <input type="number" id="ir-death" placeholder="YYYY" min="1800" max="2100">
+            <input type="number" id="ir-death" class="research-form-field" placeholder="YYYY" min="1800" max="2100">
           </div>
         </div>
         <div class="form-row">
           <div class="form-group">
             <label>Living?</label>
-            <select id="ir-living">
+            <select id="ir-living" class="research-form-field">
               <option value="true">Yes</option>
               <option value="false">No</option>
             </select>
           </div>
         </div>
         <div class="info-manage" style="margin-top:8px">
-          <button class="btn btn-primary" onclick="saveInfoResearch()">Save Changes</button>
+          <button class="btn btn-primary" id="save-details-btn" onclick="saveInfoResearch()">Save Changes</button>
+          <button class="btn btn-danger" id="delete-relative-btn" onclick="deleteFromResearch()" style="margin-top:8px">Delete Profile</button>
         </div>
       </form>
     </div>

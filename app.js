@@ -223,24 +223,60 @@ function drawSilhouette(group, isFemale) {
   }
 }
 
+// Converts native Google Drive preview / share / edit links into direct raw
+// image streams (drive thumbnail endpoint) that render cross-origin. Anything
+// that is already a direct stream or a non-Google URL is returned untouched.
+function convertToDirectStreamUrl(inputUrl) {
+  if (!inputUrl) return "";
+  const url = String(inputUrl).trim();
+  if (!url) return "";
+
+  // Already a direct thumbnail / stream URL: keep it.
+  if (/drive\.google\.com\/thumbnail\?id=/i.test(url) ||
+      /drive\.googleusercontent\.com\//i.test(url) ||
+      /drive\.google\.com\/uc\?export=view/i.test(url)) {
+    return url;
+  }
+
+  // Native preview / share / edit links:
+  //   https://drive.google.com/file/d/FILE_ID/view?usp=sharing
+  //   https://drive.google.com/open?id=FILE_ID
+  //   https://drive.google.com/uc?id=FILE_ID&export=download
+  let fileId = (url.match(/\/d\/([a-zA-Z0-9_-]+)/) || [])[1];
+  if (!fileId) fileId = (url.match(/[?&]id=([a-zA-Z0-9_-]+)/) || [])[1];
+  if (fileId) {
+    return "https://drive.google.com/thumbnail?id=" + fileId + "&sz=w400";
+  }
+
+  return url;
+}
+
 function renderAvatar(g, p, cx, updatedId) {
   const deceased = isDeceased(p);
   const isFemale = (p.gender === 'Female' || p.gender === 'F');
   const fill = isFemale ? '#f97316' : '#0d9488';
   const stroke = deceased ? '#1c1917' : (isFemale ? '#ea580c' : '#0f766e');
-  const imgUrl = p.photo_url && String(p.photo_url).trim() ? String(p.photo_url).trim() : '';
+  const imgUrl = convertToDirectStreamUrl(p.photo_url);
 
   const group = g.append('g')
     .attr('transform', 'translate(' + cx + ',0)')
     .style('cursor', 'pointer');
 
   // STRICT RULE: if a photo exists, render ONLY the photo (circle-masked, thin
-  // neutral ring). The fallback silhouette / color chip is never drawn beneath
-  // it, so no double-layered ghost remains.
+  // neutral ring). A solid backdrop chip is painted beneath the masked image so
+  // tree lines can never bleed through while the stream loads, and if the image
+  // fails the node swaps to the vector silhouette instead of a hollow circle.
   if (imgUrl) {
     const cid = 'clip_' + updatedId;
     g.append('clipPath').attr('id', cid)
       .append('circle').attr('r', 29).attr('cx', cx).attr('cy', 0);
+
+    group.append('circle')
+      .attr('class', 'node-photo-backdrop')
+      .attr('r', 29)
+      .attr('fill', fill)
+      .attr('stroke', 'none')
+      .attr('filter', deceased ? 'url(#deceasedFilter)' : null);
 
     group.append('circle')
       .attr('class', 'node-circle')
@@ -250,7 +286,7 @@ function renderAvatar(g, p, cx, updatedId) {
       .attr('stroke-width', deceased ? 4 : 3)
       .attr('filter', deceased ? 'url(#deceasedFilter)' : null);
 
-    group.append('image')
+    const photo = group.append('image')
       .attr('class', 'node-photo')
       .attr('href', imgUrl)
       .attr('x', cx - 29).attr('y', -29)
@@ -258,6 +294,18 @@ function renderAvatar(g, p, cx, updatedId) {
       .attr('preserveAspectRatio', 'xMidYMid slice')
       .attr('clip-path', 'url(#' + cid + ')')
       .attr('filter', deceased ? 'url(#deceasedFilter)' : null);
+
+    // Direct stream failed to resolve (broken link): fall back to the vector
+    // chip + silhouette so the node never renders as a broken hollow circle.
+    photo.on('error', function () {
+      group.select('.node-photo-backdrop').remove();
+      photo.remove();
+      group.select('.node-circle')
+        .attr('fill', fill)
+        .attr('stroke', stroke)
+        .attr('filter', deceased ? 'url(#deceasedFilter)' : null);
+      drawSilhouette(group, isFemale);
+    });
   } else {
     // ONLY the vector fallback: gender color chip + silhouette icon.
     group.append('circle')
@@ -569,12 +617,20 @@ function openInfoDashboard(person, event) {
 function renderInfoDashboard(person) {
   const counts = aggregateFamilyCounts(person.person_id, relationships, persons);
   const title = [person.gikuyu_name, person.fathers_name, person.other_names].filter(Boolean).join(' ');
-  const imgUrl = person.photo_url && String(person.photo_url).trim() ? String(person.photo_url).trim() : '';
+  const imgUrl = convertToDirectStreamUrl(person.photo_url);
 
   const avatar = document.getElementById('info-avatar');
-  avatar.innerHTML = imgUrl
-    ? '<img src="' + imgUrl + '" alt="' + escapeHtml(title) + '">'
-    : escapeHtml(String(person.gikuyu_name || '?').charAt(0).toUpperCase());
+  avatar.innerHTML = '';
+  const initial = escapeHtml(String(person.gikuyu_name || '?').charAt(0).toUpperCase());
+  if (imgUrl) {
+    const avatarImg = document.createElement('img');
+    avatarImg.src = imgUrl;
+    avatarImg.alt = title;
+    avatarImg.onerror = () => { avatar.textContent = initial; };
+    avatar.appendChild(avatarImg);
+  } else {
+    avatar.textContent = initial;
+  }
 
   document.getElementById('info-name').textContent = title;
   document.getElementById('info-meta').innerHTML =
@@ -762,14 +818,21 @@ function populateResearchForm(person) {
   document.getElementById('ir-photo').value = '';
   delete document.getElementById('ir-photo').dataset.croppedDataUrl;
   delete document.getElementById('ir-photo').dataset.croppedMime;
+  document.getElementById('ir-photo-url').value = person.photo_url || '';
   const preview = document.getElementById('ir-photo-preview');
-  if (person.photo_url) {
-    preview.src = person.photo_url;
+  if (imgUrlForPreview(person.photo_url)) {
+    preview.src = imgUrlForPreview(person.photo_url);
     preview.classList.add('has-photo');
   } else {
     preview.src = '';
     preview.classList.remove('has-photo');
   }
+
+  protectResearchTab(person);
+}
+
+function imgUrlForPreview(rawUrl) {
+  return convertToDirectStreamUrl(rawUrl);
 }
 
 async function saveInfoResearch() {
@@ -783,6 +846,7 @@ async function saveInfoResearch() {
   }
 
   const photo = await savePhotoFrom(document.getElementById('ir-photo'));
+  const photoUrlEntry = (document.getElementById('ir-photo-url').value || '').trim();
   const data = {
     person_id: person.person_id,
     gikuyu_name: gikuyu,
@@ -796,6 +860,8 @@ async function saveInfoResearch() {
   if (photo) {
     data.base64Image = photo.base64Image;
     data.mimeType = photo.mimeType;
+  } else if (photoUrlEntry) {
+    data.photo_url = convertToDirectStreamUrl(photoUrlEntry);
   }
 
   const res = await apiPost(Object.assign({ action: 'updatePerson' }, data));
@@ -810,6 +876,53 @@ async function saveInfoResearch() {
   dashboardPerson = fresh;
   renderInfoDashboard(fresh);
   switchInfoTab('research');
+}
+
+// ============================================================
+// Access Permissions (Research Tab Lock)
+// ============================================================
+// Locks the Research tab into read-only mode for everyone except the profile's
+// original creator and tree admins. The backend still enforces ownership
+// (ownsOrAdmin) on every write; this is the frontend authorization boundary.
+function protectResearchTab(activeRelative) {
+  const isAdmin = isSuperAdminLocal();
+  const isAuthorized = isAdmin || String(activeRelative.created_by || '') === currentUserToken;
+
+  const inputElements = document.querySelectorAll('.research-form-field');
+  const saveBtn = document.getElementById('save-details-btn');
+  const delBtn = document.getElementById('delete-relative-btn');
+  const notice = document.getElementById('research-security-notice');
+
+  if (!isAuthorized) {
+    inputElements.forEach(input => {
+      input.setAttribute('disabled', 'true');
+      input.style.opacity = '0.6';
+    });
+    if (saveBtn) saveBtn.style.display = 'none';
+    if (delBtn) delBtn.style.display = 'none';
+    if (notice) {
+      notice.innerHTML = displayFormSecurityNotice('🔒 Read-Only Mode: You can only alter details on profiles that you personally created.');
+    }
+  } else {
+    inputElements.forEach(input => {
+      input.removeAttribute('disabled');
+      input.style.opacity = '';
+    });
+    if (saveBtn) saveBtn.style.display = 'block';
+    // Only the Master Admin may use destructive delete methods.
+    if (delBtn) delBtn.style.display = isAdmin ? 'block' : 'none';
+    if (notice) notice.innerHTML = '';
+  }
+}
+
+function displayFormSecurityNotice(message) {
+  return '<div class="research-lock-banner">' + message + '</div>';
+}
+
+function deleteFromResearch() {
+  if (!dashboardPerson) return;
+  closeModal('info-modal');
+  openDeleteModal(dashboardPerson);
 }
 
 // Re-opens the radial action menu at the node's last click position so the
@@ -1641,6 +1754,7 @@ function clearTargetedForm() {
   delete document.getElementById('ob-photo').dataset.croppedMime;
   document.getElementById('ob-photo-preview').src = '';
   document.getElementById('ob-photo-preview').classList.remove('has-photo');
+  document.getElementById('ob-photo-url').value = '';
   resetLinkFields();
   document.querySelectorAll('input[name="ob-relation"]').forEach(r => r.checked = false);
 }
@@ -1739,6 +1853,12 @@ async function onboardSubmitNew() {
   if (photo) {
     data.base64Image = photo.base64Image;
     data.mimeType = photo.mimeType;
+  } else {
+    const photoUrlEl = document.getElementById('ob-photo-url');
+    const photoUrlEntry = photoUrlEl ? photoUrlEl.value.trim() : '';
+    if (photoUrlEntry) {
+      data.photo_url = convertToDirectStreamUrl(photoUrlEntry);
+    }
   }
 
   // Duplicate guard: typed a name that already exists but never confirmed a merge.
@@ -1937,6 +2057,18 @@ document.getElementById('ob-living').addEventListener('change', function () {
 });
 document.getElementById('ir-living').addEventListener('change', function () {
   syncLivingUI('ir');
+});
+document.getElementById('ir-photo-url').addEventListener('input', function () {
+  const preview = document.getElementById('ir-photo-preview');
+  const direct = convertToDirectStreamUrl(this.value);
+  preview.src = direct || '';
+  preview.classList.toggle('has-photo', !!direct);
+});
+document.getElementById('ob-photo-url').addEventListener('input', function () {
+  const preview = document.getElementById('ob-photo-preview');
+  const direct = convertToDirectStreamUrl(this.value);
+  preview.src = direct || '';
+  preview.classList.toggle('has-photo', !!direct);
 });
 
 (function wireCrop() {

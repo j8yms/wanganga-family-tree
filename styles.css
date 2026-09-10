@@ -192,9 +192,9 @@ svg { width: 100%; height: 100%; }
   background: #24323d;
   color: #a0aec0;
   border: 2px solid #374151;
-  border-radius: 50px;
-  padding: 4px 8px;
-  font-size: 13px;
+  border-radius: 20px;
+  padding: 2px 8px;
+  font-size: 12px;
   font-weight: bold;
   transform: translateX(-50%);
   white-space: nowrap;
@@ -224,6 +224,12 @@ svg { width: 100%; height: 100%; }
 }
 .family-chip .family-chip-sub { color: var(--text-dim); font-size: 11px; }
 .family-chips-empty { color: var(--text-dim); font-size: 13px; }
+
+.research-lock-banner {
+  background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.4);
+  color: #fecaca; border-radius: 10px; padding: 12px 14px; font-size: 13px;
+  line-height: 1.5; margin-bottom: 16px;
+}
 .modal {
   background: var(--surface); border: 1px solid var(--surface2); border-radius: 16px;
   padding: 32px; width: 460px; max-width: 90vw; max-height: 85vh; overflow-y: auto;
