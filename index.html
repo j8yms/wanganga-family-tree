@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Wang'ang'a Family Tree</title>
+<link rel="stylesheet" href="styles.css">
+<script src="https://d3js.org/d3.v7.min.js"></script>
+</head>
+<body>
+
+<div id="loading">
+  <div class="spinner"></div>
+  <div style="color:var(--text-dim);font-size:13px">Loading Wang'ang'a Family Tree...</div>
+</div>
+
+<div id="toolbar">
+  <h1>&#127793; Wang'ang'a Family Tree</h1>
+  <div class="spacer"></div>
+  <button class="btn btn-ghost" id="admin-btn" onclick="toggleAdminUnlock()">&#128274; Admin</button>
+  <button class="btn btn-ghost" onclick="zoomReset()">Reset View</button>
+  <button class="btn btn-primary" onclick="openAddPersonModal(null)">+ Add Person</button>
+</div>
+
+<div id="tree-container">
+  <svg id="tree-svg"></svg>
+</div>
+
+<div id="radial-menu"><div class="radial-center"></div></div>
+
+<!-- Admin Unlock Modal -->
+<div class="modal-overlay" id="admin-modal">
+  <div class="modal" style="max-width:380px">
+    <h2>Admin Unlock</h2>
+    <div class="subtitle">Enter the admin code you set in <code>Code.gs</code> (SUPERADMIN_TOKEN). Keep it secret - it grants full edit/delete powers.</div>
+    <form id="admin-form" onsubmit="return false;">
+      <div class="form-group">
+        <label>Admin code</label>
+        <input type="password" id="admin-code-input" autocomplete="off" placeholder="Paste your secret code">
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" onclick="closeModal('admin-modal')">Cancel</button>
+        <button class="btn btn-primary" onclick="submitAdminUnlock()">Unlock</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Photo Cropper -->
+<div id="crop-overlay">
+  <div class="crop-card">
+    <h3>Adjust Photo</h3>
+    <p class="crop-hint">Drag to move · Use the slider or scroll to zoom</p>
+    <div id="crop-viewport">
+      <canvas id="crop-canvas" width="320" height="320"></canvas>
+    </div>
+    <input type="range" id="crop-zoom" min="0" max="100" value="0">
+    <div id="crop-actions">
+      <button class="btn btn-ghost" id="crop-cancel-btn">Cancel</button>
+      <button class="btn btn-primary" id="crop-apply-btn">Use Photo</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add/Edit Person Modal -->
+<div class="modal-overlay" id="person-modal">
+  <div class="modal">
+    <h2 id="person-modal-title">Add Person</h2>
+    <div class="subtitle" id="person-modal-subtitle">Fill in the details below</div>
+    <form id="person-form" onsubmit="return false;">
+      <input type="hidden" id="pf-id">
+      <input type="hidden" id="pf-link-parent-id">
+      <input type="hidden" id="pf-link-type">
+
+      <div class="form-group" id="pf-relation-wrap" style="display:none">
+        <label id="pf-relation-label">Relationship</label>
+        <select id="pf-relation"></select>
+      </div>
+
+      <div class="form-group">
+        <label>Passport Photo</label>
+        <img class="photo-preview" id="pf-photo-preview" alt="preview">
+        <input type="file" id="pf-photo" accept="image/*" onchange="handlePhotoSelect(this, 'pf-photo-preview')">
+      </div>
+
+      <div class="form-row">
+        <div class="form-group autocomplete-wrapper">
+          <label>Gikuyu Name</label>
+          <input type="text" id="pf-gikuyu" required placeholder="e.g. Thiong'o" autocomplete="off">
+          <div class="autocomplete-list" id="pf-gikuyu-results"></div>
+        </div>
+        <div class="form-group autocomplete-wrapper">
+          <label>Father's Name</label>
+          <input type="text" id="pf-father" required placeholder="e.g. Waweru" autocomplete="off">
+          <div class="autocomplete-list" id="pf-father-results"></div>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Other Names</label>
+          <input type="text" id="pf-other" placeholder="e.g. Daniel">
+        </div>
+        <div class="form-group">
+          <label>Gender</label>
+          <select id="pf-gender">
+            <option value="Male">Male</option>
+            <option value="Female">Female</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Birth Year</label>
+          <input type="number" id="pf-birth" placeholder="YYYY" min="1800" max="2100">
+        </div>
+        <div class="form-group" id="pf-death-wrap">
+          <label>Death Year</label>
+          <input type="number" id="pf-death" placeholder="YYYY" min="1800" max="2100">
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Living?</label>
+          <select id="pf-living">
+            <option value="true">Yes</option>
+            <option value="false">No</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn btn-ghost" onclick="closeModal('person-modal')">Cancel</button>
+        <button class="btn btn-primary" onclick="savePerson()">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Onboarding Modal -->
+<div class="modal-overlay" id="onboard-modal">
+  <div class="modal">
+    <h2>Welcome to the Wang'ang'a Family Tree</h2>
+    <div class="subtitle">Search for your name to join an existing profile, or create a new one.</div>
+    <div class="form-group autocomplete-wrapper">
+      <label>Search Your Name</label>
+      <input type="text" id="ob-search" placeholder="Start typing your name..." autocomplete="off">
+      <div class="autocomplete-list" id="ob-results"></div>
+    </div>
+    <div class="merge-dialog" id="ob-merge">
+      <p>We found an existing profile matching your name. Would you like to <strong>claim this profile</strong> and update its missing details?</p>
+      <div class="merge-actions">
+        <button class="btn btn-ghost" onclick="onboardNewProfile()">No, Create New</button>
+        <button class="btn btn-primary" onclick="onboardMergeProfile()">Yes, Merge</button>
+      </div>
+    </div>
+    <div id="ob-new-form" style="display:none">
+      <div class="form-group">
+        <label>Passport Photo</label>
+        <img class="photo-preview" id="ob-photo-preview" alt="preview">
+        <input type="file" id="ob-photo" accept="image/*" onchange="handlePhotoSelect(this, 'ob-photo-preview')">
+      </div>
+      <div class="form-row">
+        <div class="form-group autocomplete-wrapper">
+          <label>Gikuyu Name</label>
+          <input type="text" id="ob-gikuyu" placeholder="e.g. Wanjiku" autocomplete="off">
+          <div class="autocomplete-list" id="ob-gikuyu-results"></div>
+        </div>
+        <div class="form-group autocomplete-wrapper">
+          <label>Father's Name</label>
+          <input type="text" id="ob-father" placeholder="e.g. Kamau" autocomplete="off">
+          <div class="autocomplete-list" id="ob-father-results"></div>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Other Names</label>
+          <input type="text" id="ob-other" placeholder="e.g. Grace">
+        </div>
+        <div class="form-group">
+          <label>Gender</label>
+          <select id="ob-gender">
+            <option value="Male">Male</option>
+            <option value="Female">Female</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Birth Year</label>
+          <input type="number" id="ob-birth" placeholder="YYYY" min="1800" max="2100">
+        </div>
+        <div class="form-group" id="ob-death-wrap">
+          <label>Death Year</label>
+          <input type="number" id="ob-death" placeholder="YYYY" min="1800" max="2100">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Living?</label>
+          <select id="ob-living">
+            <option value="true">Yes</option>
+            <option value="false">No</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group" style="margin-top:12px">
+        <label>Link me to family (optional)</label>
+        <div class="subtitle" style="font-size:12px">Pick people already in the tree so your profile connects to them automatically.</div>
+      </div>
+      <div class="form-row">
+        <div class="form-group autocomplete-wrapper">
+          <label>My Father</label>
+          <input type="text" id="ob-parent-father" placeholder="Search existing people..." autocomplete="off">
+          <div class="autocomplete-list" id="ob-parent-father-results"></div>
+        </div>
+        <div class="form-group autocomplete-wrapper">
+          <label>My Mother</label>
+          <input type="text" id="ob-parent-mother" placeholder="Search existing people..." autocomplete="off">
+          <div class="autocomplete-list" id="ob-parent-mother-results"></div>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group autocomplete-wrapper">
+          <label>My Sibling</label>
+          <input type="text" id="ob-sibling" placeholder="Search existing people..." autocomplete="off">
+          <div class="autocomplete-list" id="ob-sibling-results"></div>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" onclick="closeModal('onboard-modal')">Cancel</button>
+        <button class="btn btn-primary" onclick="onboardSubmitNew()">Create Profile</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Delete Confirmation Modal -->
+<div class="modal-overlay" id="delete-modal">
+  <div class="modal" style="width:360px;text-align:center">
+    <h2>Delete Person?</h2>
+    <div class="subtitle">This will permanently remove this person and all their relationships from the tree.</div>
+    <div class="modal-actions" style="justify-content:center">
+      <button class="btn btn-ghost" onclick="closeModal('delete-modal')">Cancel</button>
+      <button class="btn btn-danger" id="delete-confirm-btn">Delete</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
