@@ -529,7 +529,7 @@ function renderTree() {
 function showRadialMenu(event, nodeData) {
   selectedNode = nodeData;
   const menu = document.getElementById('radial-menu');
-  menu.innerHTML = '<div class="radial-center"></div>';
+  menu.innerHTML = '<button class="radial-center" type="button" title="View Info &amp; LifeStory" onclick="radialInfoClick(event)">ℹ INFO</button>';
 
   const items = [
     { label: 'Add Parents', action: () => openAddPersonModal(nodeData, 'parent') },
@@ -586,6 +586,18 @@ function hideRadialMenu() {
   const menu = document.getElementById('radial-menu');
   menu.classList.remove('active');
   setTimeout(() => { menu.style.display = 'none'; }, 200);
+}
+
+// Radial center "INFO" trigger: clicking the inner core launches the unified
+// info drawer focused on the chronological LifeStory timeline summary.
+function radialInfoClick(e) {
+  if (e && e.stopPropagation) e.stopPropagation();
+  const node = selectedNode;
+  hideRadialMenu();
+  if (node) {
+    onNodeSelected(node, null);
+    switchInfoTab('lifestory');
+  }
 }
 
 document.addEventListener('click', () => hideRadialMenu());
@@ -666,8 +678,12 @@ function buildLifeSummary(person, counts) {
   const childWord = counts.childrenCount === 1 ? 'child' : 'children';
 
   let s = (birth && !isNaN(birth))
-    ? name + ' was born in ' + birth + '.'
+    ? name + ' was born in ' + birth + (person.place_of_birth ? ' ' + person.place_of_birth : '') + '.'
     : name + ' was born in an unrecorded year.';
+
+  if (String(person.is_living).toUpperCase() !== 'FALSE' && person.place_of_living) {
+    s += ' They currently reside in ' + person.place_of_living + '.';
+  }
 
   if (counts.spousesList.length > 0) {
     s += ' They have ' + counts.siblingCount + ' ' + siblingWord + ' and ' +
@@ -698,49 +714,60 @@ function switchInfoTab(tab) {
 function generateChronologicalLifeStory(targetPerson, persons, relationships) {
   let events = [];
   const targetId = targetPerson.person_id;
+  const live = String(targetPerson.is_living).toUpperCase() === 'TRUE';
 
-  // 1. Core Event: Birth
+  // 1. Core Event: Birth (origin + current residence blended in)
   if (targetPerson.birth_year) {
+    const pBirth = targetPerson.place_of_birth ? ' in ' + targetPerson.place_of_birth : '';
+    const pLiving = (live && targetPerson.place_of_living) ? ' They currently reside in ' + targetPerson.place_of_living + '.' : '';
     events.push({
       year: parseInt(targetPerson.birth_year, 10),
       title: "Birth",
-      description: `${targetPerson.gikuyu_name} ${targetPerson.fathers_name} ${targetPerson.other_names} was born in the year ${targetPerson.birth_year}.`
+      description: `${targetPerson.gikuyu_name} ${targetPerson.fathers_name} ${targetPerson.other_names} was born in the year ${targetPerson.birth_year}${pBirth}.${pLiving}`
     });
   }
 
-  // 2. Traversal Event: Birth of Children
+  // 2. Traversal Event: Birth of Children (each child's place of birth)
   const childLinks = relationships.filter(r => r.parent_id === targetId && r.rel_type !== "Spouse");
   childLinks.forEach(link => {
     const child = persons.find(p => p.person_id === link.child_id);
     if (child && child.birth_year) {
+      const childPlace = child.place_of_birth ? ' in ' + child.place_of_birth : '';
       events.push({
         year: parseInt(child.birth_year, 10),
         title: "Birth of child",
-        description: `Their child, ${child.gikuyu_name} ${child.fathers_name} ${child.other_names || ''}, was born in the year ${child.birth_year}.`
+        description: `Their child, ${child.gikuyu_name} ${child.fathers_name} ${child.other_names || ''}, was born in the year ${child.birth_year}${childPlace}.`
       });
     }
   });
 
-  // 3. Traversal Event: Death of Parents
+  // 3. Traversal Event: Death of Parents (each parent's place of death)
   const parentLinks = relationships.filter(r => r.child_id === targetId && r.rel_type !== "Spouse");
   parentLinks.forEach(link => {
     const parent = persons.find(p => p.person_id === link.parent_id);
     if (parent && parent.death_year) {
+      const parentDeathPlace = parent.place_of_death ? ' in ' + parent.place_of_death : '';
       events.push({
         year: parseInt(parent.death_year, 10),
         title: `Death of ${parent.gender === 'Male' ? 'father' : 'mother'}`,
-        description: `Their ${parent.gender === 'Male' ? 'father' : 'mother'}, ${parent.gikuyu_name} ${parent.fathers_name}, passed away in the year ${parent.death_year}.`
+        description: `Their ${parent.gender === 'Male' ? 'father' : 'mother'}, ${parent.gikuyu_name} ${parent.fathers_name}, passed away in the year ${parent.death_year}${parentDeathPlace}.`
       });
     }
   });
 
-  // 4. Core Event: Death of target relative
-  if (targetPerson.death_year) {
-    events.push({
-      year: parseInt(targetPerson.death_year, 10),
-      title: "Death",
-      description: `${targetPerson.gikuyu_name} passed away in the year ${targetPerson.death_year}.`
-    });
+  // 4. Core Event: Death of the target (place + computed age)
+  if (!live || targetPerson.death_year) {
+    const dYear = parseInt(targetPerson.death_year, 10);
+    if (dYear) {
+      const pDeath = targetPerson.place_of_death ? ' in ' + targetPerson.place_of_death : '';
+      const birth = parseInt(targetPerson.birth_year, 10);
+      const ageClause = (birth && !isNaN(birth)) ? ' at the age of ' + (dYear - birth) + ' years' : '';
+      events.push({
+        year: dYear,
+        title: "Death",
+        description: `${targetPerson.gikuyu_name} passed away in the year ${targetPerson.death_year}${pDeath}${ageClause}.`
+      });
+    }
   }
 
   // CRITICAL STEP: Sort all generated items chronologically from lowest year to highest year
@@ -771,6 +798,9 @@ function populateResearchForm(person) {
   document.getElementById('ir-gender').value = (person.gender === 'Female') ? 'Female' : 'Male';
   document.getElementById('ir-birth').value = person.birth_year || '';
   document.getElementById('ir-death').value = person.death_year || '';
+  document.getElementById('ir-place-birth').value = person.place_of_birth || '';
+  document.getElementById('ir-place-living').value = person.place_of_living || '';
+  document.getElementById('ir-place-death').value = person.place_of_death || '';
   document.getElementById('ir-living').value = isDeceased(person) ? 'false' : 'true';
   syncLivingUI('ir');
   document.getElementById('ir-photo').value = '';
@@ -813,6 +843,9 @@ async function saveInfoResearch() {
     gender: document.getElementById('ir-gender').value,
     birth_year: document.getElementById('ir-birth').value,
     death_year: document.getElementById('ir-death').value,
+    place_of_birth: document.getElementById('ir-place-birth').value.trim(),
+    place_of_living: document.getElementById('ir-place-living').value.trim(),
+    place_of_death: document.getElementById('ir-place-death').value.trim(),
     is_living: toBool(document.getElementById('ir-living').value)
   };
   if (photo) {
@@ -1167,9 +1200,11 @@ function applyRelationGender(sel) {
 
 function syncLivingUI(prefix) {
   const sel = document.getElementById(prefix + '-living');
+  if (!sel) return;
   const wrap = document.getElementById(prefix + '-death-wrap');
-  if (!sel || !wrap) return;
-  wrap.style.display = sel.value === 'true' ? 'none' : '';
+  if (wrap) wrap.style.display = sel.value === 'true' ? 'none' : '';
+  const placeWrap = document.getElementById(prefix + '-place-death-wrap');
+  if (placeWrap) placeWrap.style.display = sel.value === 'true' ? 'none' : '';
 }
 
 function attachNameAutocomplete(inputId, resultsId, opts) {

@@ -164,6 +164,9 @@ test deployment.
 | photo_url | String | Drive thumbnail URL |
 | death_year | Integer | YYYY format |
 | created_by | String | Device-scoped owner token |
+| place_of_birth | String | Birthplace (geographic location) |
+| place_of_living | String | Current residence / place of living |
+| place_of_death | String | Place of death (deceased only) |
 
 ### Table B: Relationships
 | Column | Type | Description |

@@ -1,7 +1,7 @@
 // ============================================================
 // Google Apps Script Backend - Family Tree API
 // Bound to a Google Sheet with two sheets:
-//   Table A: "Persons" (person_id, gikuyu_name, fathers_name, other_names, gender, is_living, birth_year, photo_url, death_year, created_by)
+//   Table A: "Persons" (person_id, gikuyu_name, fathers_name, other_names, gender, is_living, birth_year, photo_url, death_year, created_by, place_of_birth, place_of_living, place_of_death)
 //   Table B: "Relationships" (relationship_id, parent_id, child_id, rel_type, spouse_link_id, created_by)
 // ============================================================
 
@@ -19,7 +19,7 @@ function getSpreadsheetId() {
   return String(id).trim();
 }
 
-var PERSON_HEADERS = ['person_id', 'gikuyu_name', 'fathers_name', 'other_names', 'gender', 'is_living', 'birth_year', 'photo_url', 'death_year', 'created_by'];
+var PERSON_HEADERS = ['person_id', 'gikuyu_name', 'fathers_name', 'other_names', 'gender', 'is_living', 'birth_year', 'photo_url', 'death_year', 'created_by', 'place_of_birth', 'place_of_living', 'place_of_death'];
 var RELATIONSHIP_HEADERS = ['relationship_id', 'parent_id', 'child_id', 'rel_type', 'spouse_link_id', 'created_by'];
 
 // ---- Super-admin override ----
@@ -77,6 +77,9 @@ function validatePersonInput(payload, isUpdate) {
   if (payload.gender && VALID_GENDERS.indexOf(payload.gender) === -1) errors.push('gender must be Male or Female');
   if (payload.birth_year && !/^\d{4}$/.test(String(payload.birth_year).trim())) errors.push('birth_year must be YYYY format');
   if (payload.death_year && !/^\d{4}$/.test(String(payload.death_year).trim())) errors.push('death_year must be YYYY format');
+  if (payload.place_of_birth && String(payload.place_of_birth).length > MAX_FIELD_LENGTH) errors.push('place_of_birth too long (max ' + MAX_FIELD_LENGTH + ')');
+  if (payload.place_of_living && String(payload.place_of_living).length > MAX_FIELD_LENGTH) errors.push('place_of_living too long (max ' + MAX_FIELD_LENGTH + ')');
+  if (payload.place_of_death && String(payload.place_of_death).length > MAX_FIELD_LENGTH) errors.push('place_of_death too long (max ' + MAX_FIELD_LENGTH + ')');
   if (payload.base64Image && String(payload.base64Image).length > 50 * 1024 * 1024) errors.push('Image too large (max 50MB)');
   return errors;
 }
@@ -276,7 +279,10 @@ function doPost(e) {
           payload.birth_year || '',
           payload.photo_url ? String(payload.photo_url) : uploadedUrl,
           payload.death_year || '',
-          payload.created_by || 'Anonymous'
+          payload.created_by || 'Anonymous',
+          payload.place_of_birth ? String(payload.place_of_birth) : '',
+          payload.place_of_living ? String(payload.place_of_living) : '',
+          payload.place_of_death ? String(payload.place_of_death) : ''
         ]);
         return jsonResponse({ success: true, person_id: newId });
 
@@ -299,7 +305,7 @@ function doPost(e) {
           payload.photo_url = handleImageUpload(payload.base64Image, payload.mimeType, (payload.gikuyu_name || "photo") + "_" + payload.person_id);
         }
 
-        var fields = ['gikuyu_name', 'fathers_name', 'other_names', 'gender', 'is_living', 'birth_year', 'photo_url', 'death_year'];
+        var fields = ['gikuyu_name', 'fathers_name', 'other_names', 'gender', 'is_living', 'birth_year', 'photo_url', 'death_year', 'place_of_birth', 'place_of_living', 'place_of_death'];
         for (var i = 0; i < fields.length; i++) {
           if (payload[fields[i]] !== undefined) {
             var col = headers.indexOf(fields[i]) + 1;
@@ -334,7 +340,7 @@ function doPost(e) {
           }
         }
 
-        var mFields = ['gikuyu_name', 'fathers_name', 'other_names', 'gender', 'is_living', 'birth_year', 'photo_url', 'death_year'];
+        var mFields = ['gikuyu_name', 'fathers_name', 'other_names', 'gender', 'is_living', 'birth_year', 'photo_url', 'death_year', 'place_of_birth', 'place_of_living', 'place_of_death'];
         for (var m = 0; m < mFields.length; m++) {
           if (payload[mFields[m]] !== undefined && payload[mFields[m]] !== '' && payload[mFields[m]] !== null) {
             var mCol = mHeaders.indexOf(mFields[m]) + 1;
