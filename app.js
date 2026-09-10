@@ -313,7 +313,7 @@ function renderAvatar(g, p, cx, updatedId) {
     if (window.isOnboardingSelectionMode) {
       handleNodeClickDuringOnboarding(p);
     } else {
-      onNodeSelected(p, event);
+      showRadialMenu(event, p);
     }
   });
 
