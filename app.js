@@ -567,34 +567,249 @@ function openInfoDashboard(person, event) {
 }
 
 function renderInfoDashboard(person) {
-  const stats = calculateVitalStats(person);
   const counts = aggregateFamilyCounts(person.person_id, relationships, persons);
   const title = [person.gikuyu_name, person.fathers_name, person.other_names].filter(Boolean).join(' ');
   const imgUrl = person.photo_url && String(person.photo_url).trim() ? String(person.photo_url).trim() : '';
-  const avatarHtml = imgUrl
-    ? '<img class="info-avatar" src="' + imgUrl + '" alt="' + escapeHtml(title) + '">'
-    : '<div class="info-avatar fallback">' + escapeHtml(String(person.gikuyu_name || '?').charAt(0).toUpperCase()) + '</div>';
 
-  document.getElementById('info-content').innerHTML =
-    '<div class="info-header">' + avatarHtml +
-    '<div>' +
-    '<div class="info-title">' + escapeHtml(title) + '</div>' +
-    '<div class="info-subtitle">' + escapeHtml(String(person.gender || '')) +
-    ' &middot; <span class="id">' + escapeHtml(String(person.person_id)) + '</span></div>' +
-    '</div></div>' +
-    '<div class="info-details">' +
-    '<div class="info-detail-row"><span class="icon">&#128197;</span>' +
-    '<div><div class="label">Timeline</div><div class="value">' + escapeHtml(stats) + '</div></div></div>' +
-    '<div class="info-detail-row"><span class="icon">&#128101;</span>' +
-    '<div><div class="label">Family Size</div><div class="value">Has ' + counts.siblingCount + ' sibling' +
-    (counts.siblingCount === 1 ? '' : 's') + ' and ' + counts.childrenCount + ' child' +
-    (counts.childrenCount === 1 ? '' : 'ren') + '.</div></div></div>' +
-    '<div class="info-detail-row"><span class="icon">&#128141;</span>' +
-    '<div><div class="label">Marriages</div><div class="value">' +
-    (counts.spousesList.length > 0 ? escapeHtml('Married to ' + counts.spousesList.join(', ')) : 'No marriage records loaded') +
-    '</div></div></div>' +
+  const avatar = document.getElementById('info-avatar');
+  avatar.innerHTML = imgUrl
+    ? '<img src="' + imgUrl + '" alt="' + escapeHtml(title) + '">'
+    : escapeHtml(String(person.gikuyu_name || '?').charAt(0).toUpperCase());
+
+  document.getElementById('info-name').textContent = title;
+  document.getElementById('info-meta').innerHTML =
+    escapeHtml(String(person.gender || '')) + ' &middot; <span class="id">' + escapeHtml(String(person.person_id)) + '</span>';
+
+  document.getElementById('info-summary').innerHTML =
+    '<div class="summary-label">Summary</div>' +
+    '<div class="summary-text">' + escapeHtml(buildLifeSummary(person, counts)) + '</div>';
+
+  document.getElementById('info-timeline').innerHTML = renderLifeStoryTimeline(person);
+  document.getElementById('info-family').innerHTML = renderFamilyPanel(person, counts);
+  populateResearchForm(person);
+
+  switchInfoTab('lifestory');
+}
+
+// Narrative summary pulled from the live record (never persisted).
+function buildLifeSummary(person, counts) {
+  const birth = parseInt(person.birth_year, 10);
+  const name = [person.gikuyu_name, person.fathers_name].filter(Boolean).join(' ') || 'This person';
+  const siblingWord = counts.siblingCount === 1 ? 'sibling' : 'siblings';
+  const childWord = counts.childrenCount === 1 ? 'child' : 'children';
+
+  let s = (birth && !isNaN(birth))
+    ? name + ' was born in ' + birth + '.'
+    : name + ' was born in an unrecorded year.';
+
+  if (counts.spousesList.length > 0) {
+    s += ' They have ' + counts.siblingCount + ' ' + siblingWord + ' and ' +
+      counts.childrenCount + ' ' + childWord + ' with ' + counts.spousesList.join(', ') + '.';
+  } else {
+    s += ' They have ' + counts.siblingCount + ' ' + siblingWord + ' and ' +
+      counts.childrenCount + ' ' + childWord + '.';
+  }
+  return s;
+}
+
+// ============================================================
+// Tab Switching
+// ============================================================
+function switchInfoTab(tab) {
+  document.querySelectorAll('.drawer-tab').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.tab === tab);
+  });
+  ['lifestory', 'family', 'research'].forEach(t => {
+    const panel = document.getElementById('panel-' + t);
+    if (panel) panel.style.display = (t === tab) ? '' : 'none';
+  });
+}
+
+// ============================================================
+// LifeStory Chronological Timeline
+// ============================================================
+function generateChronologicalLifeStory(targetPerson, persons, relationships) {
+  let events = [];
+  const targetId = targetPerson.person_id;
+
+  // 1. Core Event: Birth
+  if (targetPerson.birth_year) {
+    events.push({
+      year: parseInt(targetPerson.birth_year, 10),
+      title: "Birth",
+      description: `${targetPerson.gikuyu_name} ${targetPerson.fathers_name} ${targetPerson.other_names} was born in the year ${targetPerson.birth_year}.`
+    });
+  }
+
+  // 2. Traversal Event: Birth of Children
+  const childLinks = relationships.filter(r => r.parent_id === targetId && r.rel_type !== "Spouse");
+  childLinks.forEach(link => {
+    const child = persons.find(p => p.person_id === link.child_id);
+    if (child && child.birth_year) {
+      events.push({
+        year: parseInt(child.birth_year, 10),
+        title: "Birth of child",
+        description: `Their child, ${child.gikuyu_name} ${child.fathers_name} ${child.other_names || ''}, was born in the year ${child.birth_year}.`
+      });
+    }
+  });
+
+  // 3. Traversal Event: Death of Parents
+  const parentLinks = relationships.filter(r => r.child_id === targetId && r.rel_type !== "Spouse");
+  parentLinks.forEach(link => {
+    const parent = persons.find(p => p.person_id === link.parent_id);
+    if (parent && parent.death_year) {
+      events.push({
+        year: parseInt(parent.death_year, 10),
+        title: `Death of ${parent.gender === 'Male' ? 'father' : 'mother'}`,
+        description: `Their ${parent.gender === 'Male' ? 'father' : 'mother'}, ${parent.gikuyu_name} ${parent.fathers_name}, passed away in the year ${parent.death_year}.`
+      });
+    }
+  });
+
+  // 4. Core Event: Death of target relative
+  if (targetPerson.death_year) {
+    events.push({
+      year: parseInt(targetPerson.death_year, 10),
+      title: "Death",
+      description: `${targetPerson.gikuyu_name} passed away in the year ${targetPerson.death_year}.`
+    });
+  }
+
+  // CRITICAL STEP: Sort all generated items chronologically from lowest year to highest year
+  return events.sort((a, b) => a.year - b.year);
+}
+
+function renderLifeStoryTimeline(person) {
+  const events = generateChronologicalLifeStory(person, persons, relationships);
+  if (!events.length) {
+    return '<div class="timeline-empty">No recorded life events yet. Add birth and death years in the Research tab to build this timeline.</div>';
+  }
+  return events.map(ev =>
+    '<div class="timeline-card">' +
+    '<div class="timeline-year-marker">' + escapeHtml(String(ev.year)) + '</div>' +
+    '<div class="timeline-title">' + escapeHtml(ev.title) + '</div>' +
+    '<div class="timeline-desc">' + escapeHtml(ev.description) + '</div>' +
+    '</div>'
+  ).join('');
+}
+
+// ============================================================
+// Family Network Panel
+// ============================================================
+function renderFamilyPanel(person, counts) {
+  const children = relationships
+    .filter(r => r.parent_id === person.person_id && r.rel_type !== 'Spouse')
+    .map(r => persons.find(p => p.person_id === r.child_id))
+    .filter(Boolean);
+
+  const parentIds = relationships
+    .filter(r => r.child_id === person.person_id && r.rel_type !== 'Spouse')
+    .map(r => r.parent_id);
+  const siblingSet = new Set();
+  parentIds.forEach(pId => {
+    relationships.forEach(r => {
+      if (r.parent_id === pId && r.child_id !== person.person_id && r.rel_type !== 'Spouse') {
+        siblingSet.add(r.child_id);
+      }
+    });
+  });
+  const siblings = Array.from(siblingSet).map(id => persons.find(p => p.person_id === id)).filter(Boolean);
+
+  const spouseNames = counts.spousesList; // already resolved full names
+
+  const siblingWord = counts.siblingCount === 1 ? 'sibling' : 'siblings';
+  const chipList = (list, labelFn) => list.length
+    ? '<div class="family-chip-list">' + list.map(p =>
+        '<div class="family-chip">' + escapeHtml(labelFn(p)) +
+        (p.birth_year ? '<div class="family-chip-sub">Born ' + escapeHtml(String(p.birth_year)) + '</div>' : '') +
+        '</div>').join('') + '</div>'
+    : '<div class="family-chips-empty">None linked yet.</div>';
+
+  return (
+    '<div class="family-card">' +
+    '<div class="family-card-label">Family Size</div>' +
+    '<div class="family-count">Has ' + counts.siblingCount + ' ' + siblingWord + ' and ' +
+    counts.childrenCount + ' child' + (counts.childrenCount === 1 ? '' : 'ren') + '.</div>' +
     '</div>' +
-    '<div class="info-manage"><button class="btn btn-ghost" onclick="openRadialFromDashboard()">Manage Profile</button></div>';
+    '<div class="family-card">' +
+    '<div class="family-card-label">Children</div>' + chipList(children, p => fullName(p)) +
+    '</div>' +
+    '<div class="family-card">' +
+    '<div class="family-card-label">Siblings</div>' + chipList(siblings, p => fullName(p)) +
+    '</div>' +
+    '<div class="family-card">' +
+    '<div class="family-card-label">Marriages</div>' +
+    '<div class="family-count">' + (spouseNames.length > 0
+      ? 'Married to ' + escapeHtml(spouseNames.join(', '))
+      : 'No marriage records loaded') + '</div>' +
+    '</div>'
+  );
+}
+
+// ============================================================
+// Research (Editable Profile Fields)
+// ============================================================
+function populateResearchForm(person) {
+  document.getElementById('ir-gikuyu').value = person.gikuyu_name || '';
+  document.getElementById('ir-father').value = person.fathers_name || '';
+  document.getElementById('ir-other').value = person.other_names || '';
+  document.getElementById('ir-gender').value = (person.gender === 'Female') ? 'Female' : 'Male';
+  document.getElementById('ir-birth').value = person.birth_year || '';
+  document.getElementById('ir-death').value = person.death_year || '';
+  document.getElementById('ir-living').value = isDeceased(person) ? 'false' : 'true';
+  syncLivingUI('ir');
+  document.getElementById('ir-photo').value = '';
+  delete document.getElementById('ir-photo').dataset.croppedDataUrl;
+  delete document.getElementById('ir-photo').dataset.croppedMime;
+  const preview = document.getElementById('ir-photo-preview');
+  if (person.photo_url) {
+    preview.src = person.photo_url;
+    preview.classList.add('has-photo');
+  } else {
+    preview.src = '';
+    preview.classList.remove('has-photo');
+  }
+}
+
+async function saveInfoResearch() {
+  const person = dashboardPerson;
+  if (!person) return;
+  const gikuyu = document.getElementById('ir-gikuyu').value.trim();
+  const fathers = document.getElementById('ir-father').value.trim();
+  if (!gikuyu || !fathers) {
+    showToast('Gikuyu Name and Father\'s Name are required');
+    return;
+  }
+
+  const photo = await savePhotoFrom(document.getElementById('ir-photo'));
+  const data = {
+    person_id: person.person_id,
+    gikuyu_name: gikuyu,
+    fathers_name: fathers,
+    other_names: document.getElementById('ir-other').value.trim(),
+    gender: document.getElementById('ir-gender').value,
+    birth_year: document.getElementById('ir-birth').value,
+    death_year: document.getElementById('ir-death').value,
+    is_living: toBool(document.getElementById('ir-living').value)
+  };
+  if (photo) {
+    data.base64Image = photo.base64Image;
+    data.mimeType = photo.mimeType;
+  }
+
+  const res = await apiPost(Object.assign({ action: 'updatePerson' }, data));
+  if (!res.success) {
+    showToast('Error: ' + (res.error || ''));
+    return;
+  }
+
+  showToast('Profile updated');
+  await loadData();
+  const fresh = persons.find(p => p.person_id === person.person_id) || person;
+  dashboardPerson = fresh;
+  renderInfoDashboard(fresh);
+  switchInfoTab('research');
 }
 
 // Re-opens the radial action menu at the node's last click position so the
@@ -1719,6 +1934,9 @@ document.getElementById('pf-living').addEventListener('change', function () {
 });
 document.getElementById('ob-living').addEventListener('change', function () {
   syncLivingUI('ob');
+});
+document.getElementById('ir-living').addEventListener('change', function () {
+  syncLivingUI('ir');
 });
 
 (function wireCrop() {

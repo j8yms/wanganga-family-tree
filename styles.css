@@ -108,13 +108,12 @@ svg { width: 100%; height: 100%; }
 
 .info-header { display: flex; align-items: center; gap: 16px; margin-bottom: 24px; padding-right: 40px; }
 .info-avatar {
-  width: 64px; height: 64px; border-radius: 50%; object-fit: cover; flex-shrink: 0;
-  border: 3px solid var(--surface2);
-}
-.info-avatar.fallback {
+  width: 64px; height: 64px; border-radius: 50%; overflow: hidden; flex-shrink: 0;
+  border: 3px solid var(--surface2); background: var(--surface2);
   display: flex; align-items: center; justify-content: center;
-  font-size: 26px; font-weight: 700; color: var(--bg); background: var(--surface2);
+  font-size: 26px; font-weight: 700; color: var(--bg);
 }
+.info-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .info-title { font-size: 20px; font-weight: 700; line-height: 1.25; word-break: break-word; }
 .info-subtitle { color: var(--text-dim); font-size: 13px; margin-top: 4px; }
 .info-subtitle .id { font-family: monospace; }
@@ -131,6 +130,100 @@ svg { width: 100%; height: 100%; }
 .info-detail-row .value { font-size: 14px; line-height: 1.5; color: var(--text); }
 .info-manage { margin-top: 24px; }
 .info-manage .btn { width: 100%; }
+
+/* ============ LifeStory Timeline (Modern Dark Theme) ============ */
+.lifestory-summary {
+  background: #141b22; border: 1px solid #374151; border-radius: 12px;
+  padding: 16px; margin-bottom: 16px; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+}
+.lifestory-summary .summary-label {
+  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
+  color: #a0aec0; margin-bottom: 4px;
+}
+.lifestory-summary .summary-text { font-size: 14px; line-height: 1.5; color: #e2e8f0; }
+
+.drawer-tabs {
+  display: flex; gap: 6px; margin-bottom: 18px; padding: 4px;
+  background: #0b0f12; border: 1px solid #374151; border-radius: 10px;
+}
+.drawer-tab {
+  flex: 1; padding: 9px 0; border: none; border-radius: 8px; cursor: pointer;
+  background: transparent; color: #a0aec0; font-size: 13px; font-weight: 600;
+  transition: background 0.15s, color 0.15s;
+}
+.drawer-tab:hover { color: #e2e8f0; }
+.drawer-tab.active { background: #24323d; color: #ffffff; }
+
+.info-panel { margin-top: 4px; }
+
+/* LifeStory Layout Wrapper */
+.lifestory-container {
+  background-color: #0b0f12;
+  color: #e2e8f0;
+  font-family: system-ui, -apple-system, sans-serif;
+  padding: 20px;
+  border-radius: 12px;
+  border: 1px solid #1f2937;
+}
+
+/* The Vertical Spine Line */
+.timeline-thread {
+  position: relative;
+  padding-left: 45px;
+  margin-left: 10px;
+  border-left: 2px solid #374151;
+}
+
+/* Event Card Block */
+.timeline-card {
+  position: relative;
+  background: #141b22;
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 20px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+}
+.timeline-card:last-child { margin-bottom: 0; }
+
+/* Year Pill/Marker attached to the spine */
+.timeline-year-marker {
+  position: absolute;
+  left: -57px;
+  background: #24323d;
+  color: #a0aec0;
+  border: 2px solid #374151;
+  border-radius: 50px;
+  padding: 4px 8px;
+  font-size: 13px;
+  font-weight: bold;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.timeline-title {
+  font-size: 14px; font-weight: 700; color: #38bdf8; margin-bottom: 4px;
+}
+.timeline-desc { font-size: 13px; line-height: 1.5; color: #e2e8f0; }
+
+.timeline-empty { color: #a0aec0; font-size: 13px; line-height: 1.6; }
+
+/* Family network panel */
+.family-card {
+  background: var(--bg); border: 1px solid var(--surface2); border-radius: 12px;
+  padding: 16px; margin-bottom: 12px;
+}
+.family-card .family-card-label {
+  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;
+  color: var(--text-dim); margin-bottom: 8px;
+}
+.family-card .family-count { font-size: 14px; color: var(--text); line-height: 1.5; }
+.family-chip-list { display: grid; gap: 6px; margin-top: 10px; }
+.family-chip {
+  background: var(--surface); border: 1px solid var(--surface2); border-radius: 8px;
+  padding: 8px 10px; font-size: 13px; color: var(--text);
+}
+.family-chip .family-chip-sub { color: var(--text-dim); font-size: 11px; }
+.family-chips-empty { color: var(--text-dim); font-size: 13px; }
 .modal {
   background: var(--surface); border: 1px solid var(--surface2); border-radius: 16px;
   padding: 32px; width: 460px; max-width: 90vw; max-height: 85vh; overflow-y: auto;

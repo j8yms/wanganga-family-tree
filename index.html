@@ -278,7 +278,91 @@
 <div class="modal-overlay drawer-overlay" id="info-modal" onclick="if(event.target===this)closeModal('info-modal')">
   <div class="drawer">
     <button class="drawer-close" onclick="closeModal('info-modal')" title="Close" aria-label="Close">&times;</button>
-    <div id="info-content"></div>
+
+    <div class="info-header">
+      <div class="info-avatar" id="info-avatar"></div>
+      <div>
+        <div class="info-title" id="info-name"></div>
+        <div class="info-subtitle" id="info-meta"></div>
+      </div>
+    </div>
+
+    <div class="lifestory-summary" id="info-summary"></div>
+
+    <div class="drawer-tabs" role="tablist">
+      <button class="drawer-tab active" data-tab="lifestory" onclick="switchInfoTab('lifestory')">LifeStory</button>
+      <button class="drawer-tab" data-tab="family" onclick="switchInfoTab('family')">Family</button>
+      <button class="drawer-tab" data-tab="research" onclick="switchInfoTab('research')">Research</button>
+    </div>
+
+    <div class="info-panel" id="panel-lifestory">
+      <div class="lifestory-container">
+        <div class="timeline-thread" id="info-timeline"></div>
+      </div>
+    </div>
+
+    <div class="info-panel" id="panel-family" style="display:none">
+      <div id="info-family"></div>
+    </div>
+
+    <div class="info-panel" id="panel-research" style="display:none">
+      <form id="info-research-form" onsubmit="return false;">
+        <div class="form-group">
+          <label>Passport Photo</label>
+          <img class="photo-preview" id="ir-photo-preview" alt="preview">
+          <input type="file" id="ir-photo" accept="image/*" onchange="handlePhotoSelect(this, 'ir-photo-preview')">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Gikuyu Name</label>
+            <input type="text" id="ir-gikuyu" autocomplete="off">
+          </div>
+          <div class="form-group">
+            <label>Father's Name</label>
+            <input type="text" id="ir-father" autocomplete="off">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Other Names</label>
+            <input type="text" id="ir-other">
+          </div>
+          <div class="form-group">
+            <label>Gender</label>
+            <select id="ir-gender">
+              <option value="Male">Male</option>
+              <option value="Female">Female</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Birth Year</label>
+            <input type="number" id="ir-birth" placeholder="YYYY" min="1800" max="2100">
+          </div>
+          <div class="form-group" id="ir-death-wrap">
+            <label>Death Year</label>
+            <input type="number" id="ir-death" placeholder="YYYY" min="1800" max="2100">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Living?</label>
+            <select id="ir-living">
+              <option value="true">Yes</option>
+              <option value="false">No</option>
+            </select>
+          </div>
+        </div>
+        <div class="info-manage" style="margin-top:8px">
+          <button class="btn btn-primary" onclick="saveInfoResearch()">Save Changes</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="info-manage">
+      <button class="btn btn-ghost" onclick="openRadialFromDashboard()">Manage Profile</button>
+    </div>
   </div>
 </div>
 
