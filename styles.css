@@ -156,6 +156,14 @@ svg { width: 100%; height: 100%; }
 
 .info-panel { margin-top: 4px; }
 
+/* Actions Tab (unified action panel) */
+.drawer-actions { display: grid; gap: 10px; }
+.drawer-actions .action-btn { width: 100%; padding: 11px 14px; font-size: 13px; }
+.info-note {
+  margin-top: 14px; font-size: 12px; line-height: 1.5; color: var(--text-dim);
+  text-align: center;
+}
+
 /* LifeStory Layout Wrapper */
 .lifestory-container {
   background-color: #0b0f12;

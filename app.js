@@ -262,22 +262,13 @@ function renderAvatar(g, p, cx, updatedId) {
     .attr('transform', 'translate(' + cx + ',0)')
     .style('cursor', 'pointer');
 
-  // STRICT RULE: if a photo exists, render ONLY the photo (circle-masked, thin
-  // neutral ring). A solid backdrop chip is painted beneath the masked image so
-  // tree lines can never bleed through while the stream loads, and if the image
-  // fails the node swaps to the vector silhouette instead of a hollow circle.
+  // STRICT SINGLE-PATH RULE: one node circle may only render ONE state.
+  const cid = 'clip_' + updatedId;
+  g.append('clipPath').attr('id', cid)
+    .append('circle').attr('r', 29).attr('cx', cx).attr('cy', 0);
+
   if (imgUrl) {
-    const cid = 'clip_' + updatedId;
-    g.append('clipPath').attr('id', cid)
-      .append('circle').attr('r', 29).attr('cx', cx).attr('cy', 0);
-
-    group.append('circle')
-      .attr('class', 'node-photo-backdrop')
-      .attr('r', 29)
-      .attr('fill', fill)
-      .attr('stroke', 'none')
-      .attr('filter', deceased ? 'url(#deceasedFilter)' : null);
-
+    // PATH A: profile photo ONLY (circle-masked image inside a thin ring).
     group.append('circle')
       .attr('class', 'node-circle')
       .attr('r', 32)
@@ -295,10 +286,9 @@ function renderAvatar(g, p, cx, updatedId) {
       .attr('clip-path', 'url(#' + cid + ')')
       .attr('filter', deceased ? 'url(#deceasedFilter)' : null);
 
-    // Direct stream failed to resolve (broken link): fall back to the vector
-    // chip + silhouette so the node never renders as a broken hollow circle.
+    // If the stream never resolves, swap the ring to the vector chip + silhouette
+    // so a person never renders as duplicate/hollow circles.
     photo.on('error', function () {
-      group.select('.node-photo-backdrop').remove();
       photo.remove();
       group.select('.node-circle')
         .attr('fill', fill)
@@ -307,7 +297,7 @@ function renderAvatar(g, p, cx, updatedId) {
       drawSilhouette(group, isFemale);
     });
   } else {
-    // ONLY the vector fallback: gender color chip + silhouette icon.
+    // PATH B: gender vector placeholder ONLY (empty photo_url).
     group.append('circle')
       .attr('class', 'node-circle')
       .attr('r', 32)
@@ -323,7 +313,7 @@ function renderAvatar(g, p, cx, updatedId) {
     if (window.isOnboardingSelectionMode) {
       handleNodeClickDuringOnboarding(p);
     } else {
-      openInfoDashboard(p, event);
+      onNodeSelected(p, event);
     }
   });
 
@@ -604,13 +594,13 @@ document.addEventListener('click', () => hideRadialMenu());
 // Info Dashboard
 // ============================================================
 let dashboardPerson = null;
-let dashboardAnchor = { clientX: 0, clientY: 0 };
 
-// Opens the side-drawer dashboard for a node clicked in standard view mode.
-function openInfoDashboard(person, event) {
-  if (event) dashboardAnchor = { clientX: event.clientX, clientY: event.clientY };
-  dashboardPerson = person;
-  renderInfoDashboard(person);
+// Unified node-selection flow: open the action panel shell, arm the action
+// buttons, render the LifeStory feed, and run the permission mask.
+function onNodeSelected(selectedPerson, event) {
+  dashboardPerson = selectedPerson;
+  renderInfoDashboard(selectedPerson);
+  setupActionButtons(selectedPerson);
   openModal('info-modal');
 }
 
@@ -641,10 +631,31 @@ function renderInfoDashboard(person) {
     '<div class="summary-text">' + escapeHtml(buildLifeSummary(person, counts)) + '</div>';
 
   document.getElementById('info-timeline').innerHTML = renderLifeStoryTimeline(person);
-  document.getElementById('info-family').innerHTML = renderFamilyPanel(person, counts);
   populateResearchForm(person);
 
-  switchInfoTab('lifestory');
+  switchInfoTab('actions');
+}
+
+// Actionable baseline targets for the Actions tab (single source of triggers).
+function setupActionButtons(person) {
+  const sib = document.getElementById('act-sibling');
+  if (sib) sib.style.display = hasLinkedParents(person) ? '' : 'none';
+  const del = document.getElementById('act-delete');
+  if (del) del.style.display = canManageRecord(person) ? '' : 'none';
+}
+
+function hasLinkedParents(person) {
+  return relationships.some(r => r.child_id === person.person_id && r.rel_type !== 'Spouse');
+}
+
+function actionAddChild() { if (dashboardPerson) { closeModal('info-modal'); openAddPersonModal(dashboardPerson, 'child'); } }
+function actionAddSibling() { if (dashboardPerson) { closeModal('info-modal'); openAddPersonModal(dashboardPerson, 'sibling'); } }
+function actionAddSpouse() { if (dashboardPerson) { closeModal('info-modal'); openAddPersonModal(dashboardPerson, 'spouse'); } }
+function actionEditResearch() { switchInfoTab('research'); }
+function actionDeleteProfile() {
+  if (!dashboardPerson) return;
+  closeModal('info-modal');
+  openDeleteModal(dashboardPerson);
 }
 
 // Narrative summary pulled from the live record (never persisted).
@@ -675,7 +686,7 @@ function switchInfoTab(tab) {
   document.querySelectorAll('.drawer-tab').forEach(btn => {
     btn.classList.toggle('active', btn.dataset.tab === tab);
   });
-  ['lifestory', 'family', 'research'].forEach(t => {
+  ['actions', 'lifestory', 'research'].forEach(t => {
     const panel = document.getElementById('panel-' + t);
     if (panel) panel.style.display = (t === tab) ? '' : 'none';
   });
@@ -748,59 +759,6 @@ function renderLifeStoryTimeline(person) {
     '<div class="timeline-desc">' + escapeHtml(ev.description) + '</div>' +
     '</div>'
   ).join('');
-}
-
-// ============================================================
-// Family Network Panel
-// ============================================================
-function renderFamilyPanel(person, counts) {
-  const children = relationships
-    .filter(r => r.parent_id === person.person_id && r.rel_type !== 'Spouse')
-    .map(r => persons.find(p => p.person_id === r.child_id))
-    .filter(Boolean);
-
-  const parentIds = relationships
-    .filter(r => r.child_id === person.person_id && r.rel_type !== 'Spouse')
-    .map(r => r.parent_id);
-  const siblingSet = new Set();
-  parentIds.forEach(pId => {
-    relationships.forEach(r => {
-      if (r.parent_id === pId && r.child_id !== person.person_id && r.rel_type !== 'Spouse') {
-        siblingSet.add(r.child_id);
-      }
-    });
-  });
-  const siblings = Array.from(siblingSet).map(id => persons.find(p => p.person_id === id)).filter(Boolean);
-
-  const spouseNames = counts.spousesList; // already resolved full names
-
-  const siblingWord = counts.siblingCount === 1 ? 'sibling' : 'siblings';
-  const chipList = (list, labelFn) => list.length
-    ? '<div class="family-chip-list">' + list.map(p =>
-        '<div class="family-chip">' + escapeHtml(labelFn(p)) +
-        (p.birth_year ? '<div class="family-chip-sub">Born ' + escapeHtml(String(p.birth_year)) + '</div>' : '') +
-        '</div>').join('') + '</div>'
-    : '<div class="family-chips-empty">None linked yet.</div>';
-
-  return (
-    '<div class="family-card">' +
-    '<div class="family-card-label">Family Size</div>' +
-    '<div class="family-count">Has ' + counts.siblingCount + ' ' + siblingWord + ' and ' +
-    counts.childrenCount + ' child' + (counts.childrenCount === 1 ? '' : 'ren') + '.</div>' +
-    '</div>' +
-    '<div class="family-card">' +
-    '<div class="family-card-label">Children</div>' + chipList(children, p => fullName(p)) +
-    '</div>' +
-    '<div class="family-card">' +
-    '<div class="family-card-label">Siblings</div>' + chipList(siblings, p => fullName(p)) +
-    '</div>' +
-    '<div class="family-card">' +
-    '<div class="family-card-label">Marriages</div>' +
-    '<div class="family-count">' + (spouseNames.length > 0
-      ? 'Married to ' + escapeHtml(spouseNames.join(', '))
-      : 'No marriage records loaded') + '</div>' +
-    '</div>'
-  );
 }
 
 // ============================================================
@@ -890,7 +848,6 @@ function protectResearchTab(activeRelative) {
 
   const inputElements = document.querySelectorAll('.research-form-field');
   const saveBtn = document.getElementById('save-details-btn');
-  const delBtn = document.getElementById('delete-relative-btn');
   const notice = document.getElementById('research-security-notice');
 
   if (!isAuthorized) {
@@ -899,7 +856,6 @@ function protectResearchTab(activeRelative) {
       input.style.opacity = '0.6';
     });
     if (saveBtn) saveBtn.style.display = 'none';
-    if (delBtn) delBtn.style.display = 'none';
     if (notice) {
       notice.innerHTML = displayFormSecurityNotice('🔒 Read-Only Mode: You can only alter details on profiles that you personally created.');
     }
@@ -909,29 +865,12 @@ function protectResearchTab(activeRelative) {
       input.style.opacity = '';
     });
     if (saveBtn) saveBtn.style.display = 'block';
-    // Only the Master Admin may use destructive delete methods.
-    if (delBtn) delBtn.style.display = isAdmin ? 'block' : 'none';
     if (notice) notice.innerHTML = '';
   }
 }
 
 function displayFormSecurityNotice(message) {
   return '<div class="research-lock-banner">' + message + '</div>';
-}
-
-function deleteFromResearch() {
-  if (!dashboardPerson) return;
-  closeModal('info-modal');
-  openDeleteModal(dashboardPerson);
-}
-
-// Re-opens the radial action menu at the node's last click position so the
-// original add/link/unlink/edit/delete actions stay reachable from the drawer.
-function openRadialFromDashboard() {
-  closeModal('info-modal');
-  setTimeout(() => {
-    if (dashboardPerson) showRadialMenu(dashboardAnchor, dashboardPerson);
-  }, 80);
 }
 
 function calculateVitalStats(person) {

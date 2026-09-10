@@ -292,19 +292,26 @@
     <div class="lifestory-summary" id="info-summary"></div>
 
     <div class="drawer-tabs" role="tablist">
-      <button class="drawer-tab active" data-tab="lifestory" onclick="switchInfoTab('lifestory')">LifeStory</button>
-      <button class="drawer-tab" data-tab="family" onclick="switchInfoTab('family')">Family</button>
+      <button class="drawer-tab active" data-tab="actions" onclick="switchInfoTab('actions')">Actions</button>
+      <button class="drawer-tab" data-tab="lifestory" onclick="switchInfoTab('lifestory')">LifeStory</button>
       <button class="drawer-tab" data-tab="research" onclick="switchInfoTab('research')">Research</button>
     </div>
 
-    <div class="info-panel" id="panel-lifestory">
+    <div class="info-panel" id="panel-actions">
+      <div class="drawer-actions">
+        <button class="btn btn-primary action-btn" onclick="actionAddChild()">➕ Add Child</button>
+        <button class="btn btn-primary action-btn" id="act-sibling" onclick="actionAddSibling()">➕ Add Sibling</button>
+        <button class="btn btn-primary action-btn" onclick="actionAddSpouse()">💍 Add Spouse</button>
+        <button class="btn btn-ghost action-btn" onclick="actionEditResearch()">✏️ Edit / Research</button>
+        <button class="btn btn-danger action-btn" id="act-delete" onclick="actionDeleteProfile()">🗑️ Delete</button>
+      </div>
+      <div class="info-note">Right-click any tree node to reopen the compact radial action wheel.</div>
+    </div>
+
+    <div class="info-panel" id="panel-lifestory" style="display:none">
       <div class="lifestory-container">
         <div class="timeline-thread" id="info-timeline"></div>
       </div>
-    </div>
-
-    <div class="info-panel" id="panel-family" style="display:none">
-      <div id="info-family"></div>
     </div>
 
     <div class="info-panel" id="panel-research" style="display:none">
@@ -361,13 +368,8 @@
         </div>
         <div class="info-manage" style="margin-top:8px">
           <button class="btn btn-primary" id="save-details-btn" onclick="saveInfoResearch()">Save Changes</button>
-          <button class="btn btn-danger" id="delete-relative-btn" onclick="deleteFromResearch()" style="margin-top:8px">Delete Profile</button>
         </div>
       </form>
-    </div>
-
-    <div class="info-manage">
-      <button class="btn btn-ghost" onclick="openRadialFromDashboard()">Manage Profile</button>
     </div>
   </div>
 </div>
