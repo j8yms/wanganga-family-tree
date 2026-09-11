@@ -1001,12 +1001,14 @@ function parentsOf(personId) {
   return ids.map(id => persons.find(p => p.person_id === id)).filter(Boolean);
 }
 
-// "born by Kamau and Wanjiku" (or just one parent when only one is known).
+// "born by Kamau and Wanjiku" (or a single parent when only one is known —
+// never the same person twice).
 function bornByParents(targetPerson) {
   const parents = parentsOf(targetPerson.person_id);
   const father = parents.find(p2 => String(p2.gender).toLowerCase().indexOf('male') !== -1 || /father/i.test(String(p2.gender)));
   const mother = parents.find(p2 => String(p2.gender).toLowerCase().indexOf('female') !== -1 || /mother/i.test(String(p2.gender)));
-  const main = [father || parents[0], mother].filter(Boolean);
+  const seen = new Set();
+  const main = [father, mother].filter(p2 => p2 && !seen.has(p2.person_id) && seen.add(p2.person_id));
   if (!main.length) return '';
   const names = main.map(p3 => p3.gikuyu_name || fullName(p3)).filter(Boolean);
   return 'born by ' + names.join(' and ');
