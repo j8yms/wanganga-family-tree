@@ -2,9 +2,6 @@
 // CONFIGURATION
 // ============================================================
 const API_URL = 'https://script.google.com/macros/s/AKfycbyK7Q4PGh6jSmNgN1NaBlgJnj-IkkduiqleToZjC7F2vGodtGO9RjN498QGvrgf1xykjw/exec';
-const SPOUSE_GAP = 70;
-const GHOST_SPOUSE_GAP = 140;
-const GHOST_SIBLING_SHIFT = 180;
 
 // Anonymous, device-scoped tracking token used to tag entries a user creates so
 // deletion can be limited to records they personally added.
@@ -136,38 +133,65 @@ function fullName(p) {
 // ============================================================
 function buildHierarchy() {
   const personMap = {};
-  persons.forEach(p => personMap[p.person_id] = Object.assign({}, p, { children: [] }));
+  persons.forEach(p => personMap[p.person_id] = Object.assign({}, p, { children: [], isWife: false }));
 
-  const { primaryOf } = buildSpouseMaps();
+  const { primaryOf, spousesOf } = buildSpouseMaps();
 
-  // Each child hangs under exactly ONE parent (Father preferred) so the layout
-  // stays a clean tree of married-couple "marriage clusters" instead of a DAG
-  // of shared node objects that overlap. A person charted inside a partner's
-  // cluster (primaryOf) is never an independent tree node; their children are
-  // re-pointed to the primary partner.
-  const parentForChild = {};
+  // Biological mothers / fathers from the raw relationship rows. A child is
+  // charted under their specific mother so half-siblings cluster under their
+  // own Mother-Father union block instead of all hanging off the father.
+  const motherOf = {};
+  const fatherOf = {};
   relationships.forEach(r => {
-    if (!r.rel_type || !/father|mother/i.test(r.rel_type)) return;
-    const parent = personMap[r.parent_id];
-    const child = personMap[r.child_id];
-    if (!parent || !child) return;
-    if (primaryOf[r.child_id]) return;
-    const anchored = personMap[primaryOf[r.parent_id] || r.parent_id];
-    if (!anchored) return;
-    const rank = /father/i.test(r.rel_type) ? 1 : 2;
-    if (!parentForChild[r.child_id] || parentForChild[r.child_id].rank > rank) {
-      parentForChild[r.child_id] = { parent: anchored, rank: rank };
-    }
+    if (!r.rel_type) return;
+    if (/mother/i.test(r.rel_type)) motherOf[r.child_id] = r.parent_id;
+    else if (/father/i.test(r.rel_type)) fatherOf[r.child_id] = r.parent_id;
   });
 
-  Object.keys(parentForChild).forEach(childId => {
-    parentForChild[childId].parent.children.push(personMap[childId]);
+  // People recorded as the "child" side of a Spouse row are partners (wives in
+  // the polygynous model). They render as a horizontal node beside their key
+  // partner and are never charted as a child of their own parents.
+  Object.keys(primaryOf).forEach(w => {
+    if (personMap[w]) personMap[w].isWife = true;
   });
 
-  const childIds = new Set(Object.keys(parentForChild));
+  // Decide where each non-wife person hangs: under their mother (union block),
+  // else their father, else they are a forest root.
+  const attachUnder = {};
+  persons.forEach(p => {
+    const pid = p.person_id;
+    if (personMap[pid].isWife) return;
+    const mom = motherOf[pid];
+    if (mom && personMap[mom]) { attachUnder[pid] = mom; return; }
+    const dadResolved = fatherOf[pid] ? (primaryOf[fatherOf[pid]] || fatherOf[pid]) : null;
+    if (dadResolved && personMap[dadResolved]) { attachUnder[pid] = dadResolved; }
+  });
+
+  // Wives become child nodes of their key partner (positioned horizontally
+  // beside them by the layout pass). Each wife keeps her own children.
+  Object.entries(spousesOf).forEach(([headId, partners]) => {
+    const head = personMap[headId];
+    if (!head || head.isWife) return;
+    (partners || []).forEach(w => {
+      const spouse = personMap[w];
+      if (!spouse) return;
+      if (attachUnder[w]) return; // already belongs to a parent branch
+      head.children.push(spouse);
+    });
+  });
+
+  // Attach every child under its resolved parent (mother by default).
+  Object.entries(attachUnder).forEach(([childId, parentId]) => {
+    const child = personMap[childId];
+    const parent = personMap[parentId];
+    if (!child || !parent || child === parent) return;
+    parent.children.push(child);
+  });
+
+  const childIds = new Set(Object.keys(attachUnder));
 
   const roots = persons
-    .filter(p => !childIds.has(p.person_id) && !primaryOf[p.person_id])
+    .filter(p => !childIds.has(p.person_id) && !personMap[p.person_id].isWife)
     .map(p => personMap[p.person_id]);
 
   if (roots.length === 0) return null;
@@ -184,50 +208,18 @@ function buildHierarchy() {
 // ============================================================
 // Ghost-Node / Collision Cleanup
 // ============================================================
-// Runs right before the node rendering cycle so no phantom icons, virtual
-// layout coordinates, or clipped overlapping avatars survive a redraw.
-// Handles polygamous clusters: when a primary has multiple spouses the
-// rendered cluster is wider, so sibling subtrees must be pushed further.
-function clearGhostNodes(nodes, links, spouseCountMap) {
-  const byId = new Map(nodes.map(n => [n.data.person_id, n]));
-
-  // Build a map of how wide each person's rendered cluster is (in px).
-  const clusterRadius = {};
+// Wives are real hierarchy nodes positioned beside their key partner, and the
+// D3 tree engine computes every x-offset from leaf counts, so adjacent families
+// automatically push apart (no manual ghost icons or slam-shifting needed).
+// The only post-layout adjustment is snapping each wife node UP onto her key
+// partner's row so the couple renders side by side while their children still
+// hang vertically beneath the wife.
+function snapWivesToPartnerRow(nodes) {
   nodes.forEach(n => {
-    const pid = n.data.person_id;
-    const numSpouses = spouseCountMap[pid] || 0;
-    clusterRadius[pid] = numSpouses > 1 ? GHOST_SPOUSE_GAP * (Math.ceil(numSpouses / 2) + 1) : GHOST_SPOUSE_GAP;
+    if (n.data && n.data.isWife && n.parent) {
+      n.y = n.parent.y;
+    }
   });
-
-  links.forEach(link => {
-    if (!link.rel_type || String(link.rel_type).toLowerCase() !== 'spouse') return;
-    const primaryNode = byId.get(link.parent_id);
-    const spouseNode = byId.get(link.child_id);
-    if (!primaryNode || !spouseNode) return;
-
-    // Lock both partners to the exact same horizontal baseline.
-    spouseNode.y = primaryNode.y;
-
-    // Enforce a strict horizontal margin between the partners.
-    spouseNode.x = primaryNode.x + GHOST_SPOUSE_GAP;
-
-    // PREVENT THE GHOST ICON: push any overlapping same-tier sibling nodes
-    // completely out of this cluster's footprint. The push range accounts for
-    // the extra width of polygamous clusters (multiple spouses).
-    const pushNeeded = clusterRadius[link.parent_id] || GHOST_SPOUSE_GAP;
-    nodes.forEach(otherNode => {
-      if (otherNode === primaryNode || otherNode === spouseNode) return;
-      if (otherNode.y !== primaryNode.y) return;
-      if (Math.abs(otherNode.x - primaryNode.x) < pushNeeded + 60) {
-        shiftSubtree(otherNode, GHOST_SIBLING_SHIFT);
-      }
-    });
-  });
-}
-
-function shiftSubtree(node, dx) {
-  node.x += dx;
-  if (node.children) node.children.forEach(child => shiftSubtree(child, dx));
 }
 
 // ============================================================
@@ -410,38 +402,13 @@ function renderTree() {
     return;
   }
 
-  const { primaryOf } = buildSpouseMaps();
-
-  // Normalise spouse pairs onto their resolved anchor. A spouse keyed on a
-  // non-tree node (e.g. a wife clicked straight on) must still render inside
-  // the cluster that actually owns the tree-node position.
-  const renderSpousesOf = {};
-  const spouseCountMap = {};
-  relationships.forEach(r => {
-    if (!r.rel_type || String(r.rel_type).toLowerCase() !== 'spouse') return;
-    let cur = r.parent_id;
-    const seen = new Set();
-    while (primaryOf[cur] && !seen.has(cur)) {
-      seen.add(cur);
-      cur = primaryOf[cur];
-    }
-    const anchor = cur;
-    if (!renderSpousesOf[anchor]) renderSpousesOf[anchor] = [];
-    if (r.child_id !== anchor && renderSpousesOf[anchor].indexOf(r.child_id) === -1) {
-      renderSpousesOf[anchor].push(r.child_id);
-    }
-    spouseCountMap[anchor] = (spouseCountMap[anchor] || 0) + 1;
-  });
-
+  // Polygynous union blocks: the D3 tree assigns every sibling its own
+  // horizontal column (proportional to leaf counts), so wives and their child
+  // clusters automatically spread apart as people are added. Separation just
+  // adds a little breathing room between adjacent nodes.
   const treeLayout = d3.tree()
-    .nodeSize([200, 150])
-    .separation((a, b) => {
-      const aCount = spouseCountMap[a.data.person_id] || 0;
-      const bCount = spouseCountMap[b.data.person_id] || 0;
-      const base = a.parent === b.parent ? 1.2 : 1.8;
-      const extra = Math.max(aCount, bCount) > 1 ? 1.4 : (aCount > 0 && bCount > 0 ? 0.5 : 0.2);
-      return base + extra;
-    });
+    .nodeSize([200, 170])
+    .separation((a, b) => (a.parent === b.parent ? 1.1 : 1.6));
 
   const hierarchyRoot = d3.hierarchy(root);
 
@@ -456,8 +423,9 @@ function renderTree() {
 
   treeLayout(hierarchyRoot);
 
-  // Clear ghost/clipping icons from the layout before rendering fresh nodes.
-  clearGhostNodes(hierarchyRoot.descendants(), relationships, spouseCountMap);
+  // Lift each wife onto her key partner's row so the couple renders side by
+  // side while the children stay hanging vertically beneath the wife.
+  snapWivesToPartnerRow(hierarchyRoot.descendants());
   const nodes = hierarchyRoot.descendants();
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
   nodes.forEach(n => {
@@ -479,12 +447,20 @@ function renderTree() {
     .data(hierarchyRoot.links())
     .enter()
     .append('path')
-    .attr('class', 'link')
+    .attr('class', d => (Math.abs(d.source.y - d.target.y) < 2) ? 'link marriage' : 'link')
     .attr('d', d => {
       const sx = d.source.x;
       const sy = d.source.y + (d.source.data.person_id === '__virtual__' ? 16 : 44);
       const tx = d.target.x;
       const ty = d.target.y - 44;
+
+      // Marriage bar: wife lifted onto the key partner's row -> straight
+      // horizontal line stretched between the two avatar rims.
+      if (Math.abs(d.source.y - d.target.y) < 2) {
+        const cy = d.source.y;
+        const dir = tx >= sx ? 1 : -1;
+        return 'M' + (sx + dir * 40) + ',' + cy + ' L' + (tx - dir * 40) + ',' + cy;
+      }
       return 'M' + sx + ',' + sy +
              ' C' + sx + ',' + ((sy + ty) / 2) +
              ' ' + tx + ',' + ((sy + ty) / 2) +
@@ -502,68 +478,28 @@ function renderTree() {
   nodeGroups.each(function(d) {
     const data = d.data;
     const g = d3.select(this);
-    const spouseIds = renderSpousesOf[data.person_id] || [];
-    const numSpouses = spouseIds.length;
 
-    // Center the primary avatar: shift left when there's exactly 1 spouse
-    // (existing behavior), otherwise keep at 0 and let alternating wives
-    // spread symmetrically around it.
-    const primaryCx = numSpouses === 1 ? -SPOUSE_GAP : 0;
     const pid1 = data.person_id.replace(/[^a-zA-Z0-9_-]/g, '') + '_' + (attrs.count++);
-    renderAvatar(g, data, primaryCx, pid1);
-    renderLabels(g, data, primaryCx);
+    renderAvatar(g, data, 0, pid1);
+    renderLabels(g, data, 0);
 
     if (!isDeceased(data)) {
       g.append('circle')
         .attr('class', 'living-dot')
-        .attr('cx', primaryCx + 24)
+        .attr('cx', 24)
         .attr('cy', -26)
         .attr('r', 6);
     }
 
-    // Render each spouse: wife 0 → right, wife 1 → left, wife 2 → further
-    // right, etc.  This alternation prevents multiple horizontal spouse lines
-    // from stacking on top of each other and keeps the cluster centred.
-    spouseIds.forEach((sid, i) => {
-      const spouse = getPerson(sid);
-      if (!spouse) return;
-      let offset;
-      if (numSpouses === 1) {
-        offset = SPOUSE_GAP;
-      } else {
-        const side = (i % 2 === 0) ? 1 : -1;
-        const tier = Math.floor(i / 2) + 1;
-        offset = side * GHOST_SPOUSE_GAP * tier;
-      }
-      const dir = offset > primaryCx ? 1 : -1;
-      g.append('line')
-        .attr('class', 'spouse-bridge')
-        .attr('x1', primaryCx + dir * 32)
-        .attr('y1', 0)
-        .attr('x2', offset - dir * 32)
-        .attr('y2', 0);
-      const pid2 = spouse.person_id.replace(/[^a-zA-Z0-9_-]/g, '') + '_' + (attrs.count++);
-      const sg = renderAvatar(g, spouse, offset, pid2);
-      renderLabels(g, spouse, offset);
-      if (!isDeceased(spouse)) {
-        g.append('circle')
-          .attr('class', 'living-dot')
-          .attr('cx', offset + 24)
-          .attr('cy', -26)
-          .attr('r', 6);
-      }
-      sg.raise();
-    });
-
-    // Congestion toggle badge: appears on the primary avatar's bottom rim when
-    // this cluster has a child branch. Shows "−" when the branch is in view
-    // (click to collapse) and "+" when it is hidden (click to expand).
+    // Congestion toggle badge: appears on the avatar's bottom rim when this
+    // cluster has a child branch. Shows "−" when the branch is in view (click
+    // to collapse) and "+" when it is hidden (click to expand).
     const childTotal = (d.children ? d.children.length : 0) + (d._children ? d._children.length : 0);
     if (childTotal > 0) {
       const isCollapsed = !!(d._children && d._children.length);
       const badge = g.append('g')
         .attr('class', 'collapse-badge')
-        .attr('transform', 'translate(' + (primaryCx + 24) + ',' + 28 + ')')
+        .attr('transform', 'translate(24,28)')
         .style('cursor', 'pointer')
         .on('click', function(event) {
           event.stopPropagation();
@@ -1610,11 +1546,15 @@ async function savePerson() {
           });
           linked = lres.success;
         } else if (linkParentId && linkType === 'child') {
+          const linkParent = getPerson(linkParentId);
           const lres = await apiPost({
             action: 'createRelationship',
             parent_id: linkParentId,
             child_id: newId,
-            rel_type: data.gender === 'Female' ? 'Mother-Child' : 'Father-Child',
+            // The link type follows the PARENT being clicked: clicking a wife
+            // (Mother-Child) or a father correctly clusters the child under the
+            // specific mother's union block.
+            rel_type: linkParent && linkParent.gender === 'Female' ? 'Mother-Child' : 'Father-Child',
             created_by: currentUserToken
           });
           linked = lres.success;
@@ -1762,6 +1702,8 @@ async function confirmLink(otherId) {
       action: 'createRelationship',
       parent_id: node.person_id,
       child_id: other.person_id,
+      // Follow the clicked person's gender so a wife clicked as the parent
+      // creates a Mother-Child link (children cluster under her union block).
       rel_type: node.gender === 'Female' ? 'Mother-Child' : 'Father-Child',
       created_by: currentUserToken
     });
