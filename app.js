@@ -1005,8 +1005,13 @@ function parentsOf(personId) {
 // never the same person twice).
 function bornByParents(targetPerson) {
   const parents = parentsOf(targetPerson.person_id);
-  const father = parents.find(p2 => String(p2.gender).toLowerCase().indexOf('male') !== -1 || /father/i.test(String(p2.gender)));
-  const mother = parents.find(p2 => String(p2.gender).toLowerCase().indexOf('female') !== -1 || /mother/i.test(String(p2.gender)));
+  // Exact gender match: "female" CONTAINS the substring "male", so a naive
+  // indexOf('male') check matches the mother first and silently swallows the
+  // father. Compare the normalized, trimmed gender word instead.
+  const maleLike = p2 => ['male', 'm'].indexOf(String(p2.gender || '').trim().toLowerCase()) !== -1;
+  const femaleLike = p2 => ['female', 'f'].indexOf(String(p2.gender || '').trim().toLowerCase()) !== -1;
+  const father = parents.find(p2 => maleLike(p2));
+  const mother = parents.find(p2 => femaleLike(p2));
   const seen = new Set();
   const main = [father, mother].filter(p2 => p2 && !seen.has(p2.person_id) && seen.add(p2.person_id));
   if (!main.length) return '';
