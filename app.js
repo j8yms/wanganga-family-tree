@@ -265,45 +265,92 @@ function layoutFamilyTree(hierarchyRoot, rowSpace) {
     return { head: headNode, wives: wives, columns: columns };
   }
 
-  // Bottom-up: the horizontal space this subtree occupies.
+  // A "union" head = exactly one wife, and every child hangs from the couple
+  // (single-wife men). Children sprout from the couple's midpoint (the middle
+  // of the dotted bar), so the couple is laid out first and the children are
+  // centred under that sprouting point.
+  function isUnionHead(snap) {
+    return snap.wives.length === 1 &&
+      !snap.columns.some(c => c.parent === snap.wives[0]) &&
+      snap.columns.some(c => c.parent === snap.head);
+  }
+
+  // Bottom-up: the exact horizontal span this subtree occupies.
+  // Offsets are measured from the MAN's centre (he sits at x=0 here); the
+  // returned width is translation-invariant, so it also works top-down.
   function measure(snap) {
-    const widths = snap.columns.map(c => measure(snapshot(c.kid)));
-    const kidsSpan = widths.reduce((s, w) => s + w, 0) + SIB_GAP * Math.max(0, widths.length - 1);
+    const kidWs = snap.columns.map(c => measure(snapshot(c.kid)));
+    const kidsSpan = kidWs.reduce((s, w) => s + w, 0) + SIB_GAP * Math.max(0, kidWs.length - 1);
     const headW = labelWidth(snap.head.data);
-    const rowSpan = snap.wives.reduce((s, w) => s + MAN_WIFE_GAP + labelWidth(w.data), headW);
-    return Math.max(kidsSpan, rowSpan);
+
+    if (isUnionHead(snap)) {
+      const ww = labelWidth(snap.wives[0].data);
+      const U = headW / 4 + MAN_WIFE_GAP / 2 + ww / 4;              // sprout point
+      const left = Math.min(-headW / 2, U - kidsSpan / 2);          // block start
+      const right = Math.max(headW / 2 + MAN_WIFE_GAP + ww, U + kidsSpan / 2);
+      return Math.max(1, right - left);
+    }
+
+    // General (2+ wives, mother-sprout, or leaf): children run from the block
+    // start; the man centres over his own direct children (or floats left),
+    // then his wives trail right of him.
+    const wRow = snap.wives.reduce((s, w) => s + MAN_WIFE_GAP + labelWidth(w.data), headW);
+    let manCenter = 0;
+    let ownBlock = 0;
+    snap.columns.forEach((c, i) => {
+      if (c.parent === snap.head) ownBlock += kidWs[i] + (ownBlock ? SIB_GAP : 0);
+    });
+    if (ownBlock) manCenter = ownBlock / 2;
+    return Math.max(kidsSpan, manCenter + wRow);
   }
   const rootSnap = snapshot(hierarchyRoot);
   const rootWidth = measure(rootSnap);
 
-  // Top-down: absolute placement, each node positioned exactly once.
-  function place(snap, topY, leftBound, blockW) {
+  // Top-down: parents hand each child a LEFT BOUND (never a centre), so every
+  // node computes its own final x/y exactly once and can never be overwritten.
+  function place(snap, topY, leftBound) {
     const kidWs = snap.columns.map(c => measure(snapshot(c.kid)));
-    // Children row: sequential, never overlapping.
+    const headW = labelWidth(snap.head.data);
+
+    if (isUnionHead(snap)) {
+      const ww = labelWidth(snap.wives[0].data);
+      const kidsSpan = kidWs.reduce((s, w) => s + w, 0) + SIB_GAP * Math.max(0, kidWs.length - 1);
+      const U = headW / 4 + MAN_WIFE_GAP / 2 + ww / 4;              // sprout offset
+      const left = Math.min(-headW / 2, U - kidsSpan / 2);
+      const manX = leftBound - left;                                // man at x=0 <- left
+      const wifeX = manX + headW / 2 + MAN_WIFE_GAP + ww / 2;
+      snap.head.x = manX;
+      snap.head.y = topY;
+      snap.wives[0].x = wifeX;
+      snap.wives[0].y = topY;
+      snap.head._unionX = (manX + wifeX) / 2;                       // sprout from the bar
+
+      let cursor = snap.head._unionX - kidsSpan / 2;
+      snap.columns.forEach((c, i) => {
+        place(snapshot(c.kid), topY + rowSpace, cursor);
+        cursor += kidWs[i] + SIB_GAP;
+      });
+      return;
+    }
+
+    // General branch: children in one row under their (seated) parent.
     let cursor = leftBound;
-    const colXs = snap.columns.map((c, i) => {
-      const cx = cursor + kidWs[i] / 2;
-      c.kid.x = cx;
-      c.kid.y = topY + rowSpace;
-      place(snapshot(c.kid), topY + rowSpace, cursor, kidWs[i]);
+    snap.columns.forEach((c, i) => {
+      place(snapshot(c.kid), topY + rowSpace, cursor);
       cursor += kidWs[i] + SIB_GAP;
-      return cx;
     });
-    const kidsRight = snap.columns.length ? cursor - SIB_GAP : leftBound;
 
     // The man centres over his own direct children (or floats left).
-    const ownIdx = [];
-    snap.columns.forEach((c, i) => { if (c.parent === snap.head) ownIdx.push(i); });
-    let manX;
-    if (ownIdx.length) {
-      const lo = colXs[ownIdx[0]], hi = colXs[ownIdx[ownIdx.length - 1]];
-      manX = (lo + hi) / 2;
-    } else {
-      manX = leftBound + labelWidth(snap.head.data) / 2;
-    }
+    let manCenter = 0;
+    let ownBlock = 0;
+    snap.columns.forEach((c, i) => {
+      if (c.parent === snap.head) ownBlock += kidWs[i] + (ownBlock ? SIB_GAP : 0);
+    });
+    if (ownBlock) manCenter = ownBlock / 2;
+    const manX = leftBound + manCenter;
     snap.head.x = manX;
     snap.head.y = topY;
-    let rowRight = manX + labelWidth(snap.head.data) / 2;
+    let rowRight = manX + headW / 2;
 
     // Wives sit horizontally beside the man, each above her own children.
     snap.wives.forEach(w => {
@@ -312,7 +359,10 @@ function layoutFamilyTree(hierarchyRoot, rowSpace) {
       const ww = labelWidth(w.data);
       let wx;
       if (wIdx.length) {
-        wx = (colXs[wIdx[0]] + colXs[wIdx[wIdx.length - 1]]) / 2;
+        const span = wIdx.reduce((s, idx, j) => s + kidWs[idx] + (j ? SIB_GAP : 0), 0);
+        let blockStart = leftBound;
+        for (let j = 0; j < wIdx[0]; j++) blockStart += kidWs[j] + SIB_GAP;
+        wx = blockStart + span / 2;
       } else {
         wx = rowRight + MAN_WIFE_GAP + ww / 2;
       }
@@ -574,6 +624,18 @@ function renderTree() {
         const dir = tx >= sx ? 1 : -1;
         return 'M' + (sx + dir * 40) + ',' + cy + ' L' + (tx - dir * 40) + ',' + cy;
       }
+
+      // Single-wife union: every child sprouts from the couple's midpoint —
+      // the middle of the dotted marriage bar — then runs down to the child.
+      if (d.source._unionX !== undefined) {
+        const y0 = d.source.y + 12;
+        const spineY = (y0 + ty) * 0.5;
+        return 'M' + d.source._unionX + ',' + y0 +
+               ' C' + d.source._unionX + ',' + spineY +
+               ' ' + d.source._unionX + ',' + spineY +
+               ' ' + tx + ',' + ty;
+      }
+
       return 'M' + sx + ',' + sy +
              ' C' + sx + ',' + ((sy + ty) / 2) +
              ' ' + tx + ',' + ((sy + ty) / 2) +
