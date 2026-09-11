@@ -138,6 +138,17 @@ function fullName(p) {
   return s.replace(/\s+/g, ' ').trim();
 }
 
+// Short name: Gikuyu name + wa father's name, without the extra third name
+// (baptism/other names such as Mary, Daniel, Kahata, Jay). Used by summaries.
+function shortName(p) {
+  if (!p) return '';
+  const g = (p.gikuyu_name || '').trim();
+  const f = (p.fathers_name || '').trim();
+  let s = g;
+  if (f) s += (s ? ' wa ' : '') + f;
+  return s.replace(/\s+/g, ' ').trim();
+}
+
 // ============================================================
 // Build Tree Hierarchy
 // ============================================================
@@ -961,11 +972,11 @@ function buildLifeSummary(person, counts) {
   const father = parents.find(p2 => ['male', 'm'].indexOf(String(p2.gender || '').trim().toLowerCase()) !== -1);
   const mother = parents.find(p2 => ['female', 'f'].indexOf(String(p2.gender || '').trim().toLowerCase()) !== -1);
   if (father && mother) {
-    sentences.push(he + (alive ? ' is ' : ' was ') + 'the ' + child + ' of ' + fullName(father) + ' and ' + fullName(mother) + '.');
+    sentences.push(he + (alive ? ' is ' : ' was ') + 'the ' + child + ' of ' + shortName(father) + ' and ' + shortName(mother) + '.');
   } else if (father) {
-    sentences.push(he + (alive ? ' is ' : ' was ') + 'the ' + child + ' of ' + fullName(father) + '.');
+    sentences.push(he + (alive ? ' is ' : ' was ') + 'the ' + child + ' of ' + shortName(father) + '.');
   } else if (mother) {
-    sentences.push(he + (alive ? ' is ' : ' was ') + 'the ' + child + ' of ' + fullName(mother) + '.');
+    sentences.push(he + (alive ? ' is ' : ' was ') + 'the ' + child + ' of ' + shortName(mother) + '.');
   }
 
   // 3) Death or current residence / age.
@@ -995,13 +1006,14 @@ function buildLifeSummary(person, counts) {
       (counts.childrenCount <= 4 ? ' (' + nameList(counts.childrenNames) + ')' : ''));
   }
   if (clauses.length) {
-    // "was married to X, had 3 siblings (...) and 3 children (...)" — only the
-    // first clause carries the verb; later ones read as a list.
+    // No extra "is/was" when the first clause already carries its own verb
+    // ("He has 2 siblings..."), e.g. when there is no spouse clause.
     if (clauses.length > 1) {
       for (let i = 1; i < clauses.length; i++) clauses[i] = clauses[i].replace(/^(?:(?:has|had) )/, '');
       clauses[clauses.length - 1] = 'and ' + clauses[clauses.length - 1];
     }
-    sentences.push((alive ? he + ' is ' : he + ' was ') + clauses.join(', ') + '.');
+    const prefix = clauses[0].startsWith('married to ') ? (alive ? he + ' is ' : he + ' was ') : '';
+    sentences.push(prefix + clauses.join(', ') + '.');
   }
 
   return sentences.join(' ');
@@ -1429,9 +1441,9 @@ function aggregateFamilyCounts(targetPersonId, relationships, persons) {
 
   return {
     childrenCount: childrenLinks.length,
-    childrenNames: childrenIds.map(id => { const o = persons.find(p => p.person_id === id); return o ? fullName(o) : null; }).filter(Boolean),
+    childrenNames: childrenIds.map(id => { const o = persons.find(p => p.person_id === id); return o ? shortName(o) : null; }).filter(Boolean),
     siblingCount: siblingIds.size,
-    siblingNames: Array.from(siblingIds).map(id => { const o = persons.find(p => p.person_id === id); return o ? fullName(o) : null; }).filter(Boolean),
+    siblingNames: Array.from(siblingIds).map(id => { const o = persons.find(p => p.person_id === id); return o ? shortName(o) : null; }).filter(Boolean),
     spousesList: spouseNames
   };
 }
