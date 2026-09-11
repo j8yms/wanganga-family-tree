@@ -415,12 +415,10 @@ function renderTree() {
   zoomBehavior = d3.zoom()
     .scaleExtent([0.1, 4])
     .filter((event) => {
-      // Preserve wheel / dblclick zoom everywhere, but never start a pan when
-      // the gesture begins on a person node (that belongs to drag-to-link).
       const onNode = (event.target && typeof event.target.closest === 'function')
         ? event.target.closest('.node-group') : null;
-      if ((event.type === 'mousedown' || event.type === 'pointerdown' || event.type === 'touchstart') && onNode) {
-        return false;
+      if (onNode) {
+        if (event.type === 'mousedown' || event.type === 'pointerdown') return false;
       }
       return true;
     })
