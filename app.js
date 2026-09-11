@@ -557,6 +557,9 @@ function renderAvatar(g, p, cx, updatedId) {
     if (Date.now() < suppressNodeClickUntil) return; // just finished a drag
     if (window.isOnboardingSelectionMode) {
       handleNodeClickDuringOnboarding(p);
+    } else if (isViewOnly) {
+      // View-only: show info panel (LifeStory) but no radial menu
+      onNodeSelected(p, event);
     } else {
       showRadialMenu(event, p);
     }
@@ -565,6 +568,7 @@ function renderAvatar(g, p, cx, updatedId) {
   group.on('contextmenu', (event) => {
     event.preventDefault();
     event.stopPropagation();
+    if (isViewOnly) return; // No radial menu in view-only mode
     if (!window.isOnboardingSelectionMode) {
       showRadialMenu(event, p);
     }
@@ -2859,14 +2863,6 @@ function applyViewOnlyMode() {
   // Hide admin button
   const adminBtn = document.getElementById('admin-btn');
   if (adminBtn) adminBtn.style.display = 'none';
-  
-  // Disable node click/right-click (radial menu)
-  document.addEventListener('click', (e) => {
-    if (e.target.closest('.node-group')) e.stopImmediatePropagation();
-  }, true);
-  document.addEventListener('contextmenu', (e) => {
-    if (e.target.closest('.node-group')) e.preventDefault();
-  }, true);
   
   // Disable info modal edit/delete buttons
   const editBtn = document.getElementById('act-edit');
