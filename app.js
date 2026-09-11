@@ -564,6 +564,13 @@ function renderTree() {
   // The dragged node rides along with the pointer; dropping on a different node
   // opens a chooser, and the link is written via the API on selection.
   const dragLink = d3.drag()
+    .filter((event) => {
+      // PC-only: mouse (and pen) drags link nodes. On phones/tablets the same
+      // gesture must stay free for pan/zoom and tap = radial menu.
+      if (event.pointerType === 'touch') return false;
+      if (typeof event.type === 'string' && event.type.indexOf('touch') === 0) return false;
+      return true;
+    })
     .subject(d => ({ x: d.x, y: d.y }))
     .on('start', function(event, d) {
       suppressNodeClickUntil = 0;
