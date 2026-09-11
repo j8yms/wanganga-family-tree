@@ -848,19 +848,16 @@ document.addEventListener('click', () => hideRadialMenu());
 // ============================================================
 let dashboardPerson = null;
 
-// "1990 – 1997" style lifespan shown under the profile name. Uses the birth /
-// death years with their precision prefixes (c. / bef. / aft.) when present.
+// Simple lifespan shown under the profile name: "1900 – 1997", "born 1950",
+// "died 1940" or "dates unrecorded".
 function yearsLivedLabel(person) {
-  const fmt = (yr, q) => {
-    if (!yr || isNaN(parseInt(yr, 10))) return null;
-    const v = normalizeQualifier(String(q || ''));
-    return (v === 'during' ? 'c. ' : v === 'before' ? 'bef. ' : v === 'after' ? 'aft. ' : '') + parseInt(yr, 10);
-  };
-  const bp = fmt(person.birth_year, person.birth_qualifier);
-  const dp = fmt(person.death_year, person.death_qualifier);
-  if (bp && dp) return bp + ' – ' + dp;
-  if (bp) return 'b. ' + bp + (String(person.is_living).toUpperCase() !== 'FALSE' ? ' (living)' : '');
-  if (dp) return 'd. ' + dp;
+  const b = parseInt(person.birth_year, 10);
+  const d = parseInt(person.death_year, 10);
+  const hasB = !isNaN(b);
+  const hasD = !isNaN(d);
+  if (hasB && hasD) return b + ' – ' + d;
+  if (hasB) return String(person.is_living).toUpperCase() !== 'FALSE' ? 'born ' + b + ' (living)' : 'born ' + b;
+  if (hasD) return 'died ' + d;
   return 'dates unrecorded';
 }
 
