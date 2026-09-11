@@ -848,6 +848,22 @@ document.addEventListener('click', () => hideRadialMenu());
 // ============================================================
 let dashboardPerson = null;
 
+// "1990 – 1997" style lifespan shown under the profile name. Uses the birth /
+// death years with their precision prefixes (c. / bef. / aft.) when present.
+function yearsLivedLabel(person) {
+  const fmt = (yr, q) => {
+    if (!yr || isNaN(parseInt(yr, 10))) return null;
+    const v = normalizeQualifier(String(q || ''));
+    return (v === 'during' ? 'c. ' : v === 'before' ? 'bef. ' : v === 'after' ? 'aft. ' : '') + parseInt(yr, 10);
+  };
+  const bp = fmt(person.birth_year, person.birth_qualifier);
+  const dp = fmt(person.death_year, person.death_qualifier);
+  if (bp && dp) return bp + ' – ' + dp;
+  if (bp) return 'b. ' + bp + (String(person.is_living).toUpperCase() !== 'FALSE' ? ' (living)' : '');
+  if (dp) return 'd. ' + dp;
+  return 'dates unrecorded';
+}
+
 // Unified node-selection flow: open the action panel shell, arm the action
 // buttons, render the LifeStory feed, and run the permission mask.
 function onNodeSelected(selectedPerson, event) {
@@ -877,7 +893,7 @@ function renderInfoDashboard(person) {
 
   document.getElementById('info-name').textContent = title;
   document.getElementById('info-meta').innerHTML =
-    escapeHtml(String(person.gender || '')) + ' &middot; <span class="id">' + escapeHtml(String(person.person_id)) + '</span>';
+    escapeHtml(String(person.gender || '')) + ' &middot; ' + escapeHtml(yearsLivedLabel(person));
 
   document.getElementById('info-summary').innerHTML =
     '<div class="summary-label">Summary</div>' +
