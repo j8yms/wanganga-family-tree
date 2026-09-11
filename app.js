@@ -563,8 +563,9 @@ function renderTree() {
   // opens a chooser, and the link is written via the API on selection.
   const dragLink = d3.drag()
     .filter((event) => {
-      // PC-only: mouse (and pen) drags link nodes. On phones/tablets the same
-      // gesture must stay free for pan/zoom and tap = radial menu.
+      // PC-only and admin-only: link nodes by dragging. Everyone else taps
+      // (mobile) or clicks (desktop) to open the radial menu, which always works.
+      if (!isSuperAdminLocal()) return false;
       if (event.pointerType === 'touch') return false;
       if (typeof event.type === 'string' && event.type.indexOf('touch') === 0) return false;
       return true;
