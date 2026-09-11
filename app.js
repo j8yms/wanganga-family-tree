@@ -911,29 +911,87 @@ function actionDeleteProfile() {
   openDeleteModal(dashboardPerson);
 }
 
+// Join a small name list nicely: "A, B and C" (capped at 'cap' names, then
+// "+N more").
+function nameList(names, cap = 4) {
+  const n = (names || []).filter(Boolean);
+  if (!n.length) return '';
+  if (n.length > cap) return n.slice(0, cap).join(', ') + ' +' + (n.length - cap) + ' more';
+  if (n.length === 1) return n[0];
+  return n.slice(0, -1).join(', ') + ' and ' + n[n.length - 1];
+}
+
 // Narrative summary pulled from the live record (never persisted).
 function buildLifeSummary(person, counts) {
   const birth = parseInt(person.birth_year, 10);
+  const death = parseInt(person.death_year, 10);
+  const alive = String(person.is_living).toUpperCase() !== 'FALSE';
   const name = [person.gikuyu_name, person.fathers_name].filter(Boolean).join(' ') || 'This person';
-  const siblingWord = counts.siblingCount === 1 ? 'sibling' : 'siblings';
-  const childWord = counts.childrenCount === 1 ? 'child' : 'children';
+  const female = /female/i.test(String(person.gender || '')) || String(person.gender) === 'F';
+  const he = female ? 'She' : 'He';
+  const child = female ? 'daughter' : 'son';
+  const verb = alive ? 'has' : 'had';
 
-  let s = (birth && !isNaN(birth))
-    ? name + ' was born ' + datePhrase(person.birth_year, person.birth_qualifier, person.birth_month, person.birth_day) + (person.place_of_birth ? ' in ' + person.place_of_birth : '') + '.'
-    : name + ' was born in an unrecorded year.';
+  const sentences = [];
 
-  if (String(person.is_living).toUpperCase() !== 'FALSE' && person.place_of_living) {
-    s += ' They currently reside in ' + person.place_of_living + '.';
-  }
-
-  if (counts.spousesList.length > 0) {
-    s += ' They have ' + counts.siblingCount + ' ' + siblingWord + ' and ' +
-      counts.childrenCount + ' ' + childWord + ' with ' + counts.spousesList.join(', ') + '.';
+  // 1) Birth.
+  if (birth && !isNaN(birth)) {
+    let b = name + ' was born ' + datePhrase(person.birth_year, person.birth_qualifier, person.birth_month, person.birth_day);
+    if (person.place_of_birth) b += ' in ' + person.place_of_birth;
+    sentences.push(b + '.');
   } else {
-    s += ' They have ' + counts.siblingCount + ' ' + siblingWord + ' and ' +
-      counts.childrenCount + ' ' + childWord + '.';
+    sentences.push(name + ' was born in an unrecorded year.');
   }
-  return s;
+
+  // 2) Parents.
+  const parents = parentsOf(person.person_id);
+  const father = parents.find(p2 => ['male', 'm'].indexOf(String(p2.gender || '').trim().toLowerCase()) !== -1);
+  const mother = parents.find(p2 => ['female', 'f'].indexOf(String(p2.gender || '').trim().toLowerCase()) !== -1);
+  if (father && mother) {
+    sentences.push(he + ' was the ' + child + ' of ' + fullName(father) + ' and ' + fullName(mother) + '.');
+  } else if (father) {
+    sentences.push(he + ' was the ' + child + ' of ' + fullName(father) + '.');
+  } else if (mother) {
+    sentences.push(he + ' was the ' + child + ' of ' + fullName(mother) + '.');
+  }
+
+  // 3) Death or current residence / age.
+  if (!alive && death && !isNaN(death)) {
+    let d = he + ' passed away ' + datePhrase(person.death_year, person.death_qualifier, person.death_month, person.death_day);
+    if (person.place_of_death) d += ' in ' + person.place_of_death;
+    if (birth && !isNaN(birth) && death >= birth) d += ' at ' + (death - birth) + ' years of age';
+    sentences.push(d + '.');
+  } else if (alive && person.place_of_living) {
+    sentences.push(he + ' currently resides in ' + person.place_of_living + ' and is ' +
+      ((birth && !isNaN(birth)) ? new Date().getFullYear() - birth + ' years old' : 'alive to this day') + '.');
+  } else if (alive && birth && !isNaN(birth)) {
+    sentences.push(he + ' is ' + (new Date().getFullYear() - birth) + ' years old.');
+  }
+
+  // 4) Spouses, siblings and children (with a few names when the family is small).
+  const clauses = [];
+  if (counts.spousesList.length) {
+    clauses.push('married to ' + nameList(counts.spousesList, 6));
+  }
+  if (counts.siblingCount) {
+    clauses.push((alive ? 'has ' : 'had ') + counts.siblingCount + ' ' + (counts.siblingCount === 1 ? 'sibling' : 'siblings') +
+      (counts.siblingCount <= 4 ? ' (' + nameList(counts.siblingNames) + ')' : ''));
+  }
+  if (counts.childrenCount) {
+    clauses.push((alive ? 'has ' : 'had ') + counts.childrenCount + ' ' + (counts.childrenCount === 1 ? 'child' : 'children') +
+      (counts.childrenCount <= 4 ? ' (' + nameList(counts.childrenNames) + ')' : ''));
+  }
+  if (clauses.length) {
+    // "was married to X, had 3 siblings (...) and 3 children (...)" — only the
+    // first clause carries the verb; later ones read as a list.
+    if (clauses.length > 1) {
+      for (let i = 1; i < clauses.length; i++) clauses[i] = clauses[i].replace(/^(?:(?:has|had) )/, '');
+      clauses[clauses.length - 1] = 'and ' + clauses[clauses.length - 1];
+    }
+    sentences.push((alive ? he + ' is ' : he + ' was ') + clauses.join(', ') + '.');
+  }
+
+  return sentences.join(' ');
 }
 
 // ============================================================
@@ -979,7 +1037,7 @@ function datePhrase(year, qualifier, month, day) {
     : 'in the year ' + year;
   if (q === 'before') return 'before ' + exact.replace(/^(on|in) /, '');
   if (q === 'after') return 'after ' + exact.replace(/^(on|in) /, '');
-  if (q === 'during') return 'around ' + exact;
+  if (q === 'during') return 'around ' + exact.replace(/^(on|in) /, '');
   return exact;
 }
 
@@ -1358,7 +1416,9 @@ function aggregateFamilyCounts(targetPersonId, relationships, persons) {
 
   return {
     childrenCount: childrenLinks.length,
+    childrenNames: childrenIds.map(id => { const o = persons.find(p => p.person_id === id); return o ? fullName(o) : null; }).filter(Boolean),
     siblingCount: siblingIds.size,
+    siblingNames: Array.from(siblingIds).map(id => { const o = persons.find(p => p.person_id === id); return o ? fullName(o) : null; }).filter(Boolean),
     spousesList: spouseNames
   };
 }
