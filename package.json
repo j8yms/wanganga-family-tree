@@ -9,7 +9,8 @@
     "seed:spouses": "node scripts/seed_spouses.js",
     "seed:all": "npm run seed:persons && npm run seed:relationships && npm run seed:spouses",
     "dedupe": "node scripts/dedupe.js",
-    "seed:persons:win": "powershell -ExecutionPolicy Bypass -File scripts/seed_persons.ps1"
+    "seed:persons:win": "powershell -ExecutionPolicy Bypass -File scripts/seed_persons.ps1",
+    "preview": "node scripts/preview.mjs"
   },
   "engines": {
     "node": ">=18"
