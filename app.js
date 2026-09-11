@@ -961,11 +961,11 @@ function buildLifeSummary(person, counts) {
   const father = parents.find(p2 => ['male', 'm'].indexOf(String(p2.gender || '').trim().toLowerCase()) !== -1);
   const mother = parents.find(p2 => ['female', 'f'].indexOf(String(p2.gender || '').trim().toLowerCase()) !== -1);
   if (father && mother) {
-    sentences.push(he + ' was the ' + child + ' of ' + fullName(father) + ' and ' + fullName(mother) + '.');
+    sentences.push(he + (alive ? ' is ' : ' was ') + 'the ' + child + ' of ' + fullName(father) + ' and ' + fullName(mother) + '.');
   } else if (father) {
-    sentences.push(he + ' was the ' + child + ' of ' + fullName(father) + '.');
+    sentences.push(he + (alive ? ' is ' : ' was ') + 'the ' + child + ' of ' + fullName(father) + '.');
   } else if (mother) {
-    sentences.push(he + ' was the ' + child + ' of ' + fullName(mother) + '.');
+    sentences.push(he + (alive ? ' is ' : ' was ') + 'the ' + child + ' of ' + fullName(mother) + '.');
   }
 
   // 3) Death or current residence / age.
