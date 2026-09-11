@@ -231,20 +231,99 @@ function buildHierarchy() {
 }
 
 // ============================================================
-// Ghost-Node / Collision Cleanup
+// Custom Polygynous Layout (subtree bounding boxes, horizontal wives)
 // ============================================================
-// Wives are real hierarchy nodes positioned beside their key partner, and the
-// D3 tree engine computes every x-offset from leaf counts, so adjacent families
-// automatically push apart (no manual ghost icons or slam-shifting needed).
-// The only post-layout adjustment is snapping each wife node UP onto her key
-// partner's row so the couple renders side by side while their children still
-// hang vertically beneath the wife.
-function snapWivesToPartnerRow(nodes) {
-  nodes.forEach(n => {
-    if (n.data && n.data.isWife && n.parent) {
-      n.y = n.parent.y;
+// Replaces the rigid d3.tree pass. Every family is a block whose width grows
+// with the man's wives and, recursively, with every descendant sub-tree.
+// Sibling blocks are pushed apart horizontally by their TRUE bounding boxes,
+// so a third/fourth-generation marriage automatically widens its row and
+// shifts the neighbours right instead of squeezing a vertical stack.
+//
+// Rows are TRUE generations: the man and all his wives share ONE horizontal
+// row, and his children — each wife's own cluster included — always hang
+// exactly one row below. Two passes guarantee this at any depth:
+//   measure(): subtree width, bottom-up;
+//   place():   absolute x/y, top-down (never overwritten by a parent).
+function layoutFamilyTree(hierarchyRoot, rowSpace) {
+  const AVATAR_W = 96;
+  const labelWidth = (p) => {
+    if (!p) return AVATAR_W;
+    const name = ((p.gikuyu_name || '') + (p.fathers_name ? ' wa ' + p.fathers_name : '')).trim();
+    return Math.max(AVATAR_W, 30 + name.length * 7.6);
+  };
+  const MAN_WIFE_GAP = 30;
+  const SIB_GAP = 56;
+
+  // Snapshot of one head's own fan: his wives and the ordered list of
+  // children columns (his own kids first, then each wife's kids underneath).
+  function snapshot(headNode) {
+    const wives = (headNode.children || []).filter(c => c.data && c.data.isWife);
+    const kids = (headNode.children || []).filter(c => !(c.data && c.data.isWife));
+    const columns = [];
+    kids.forEach(k => columns.push({ parent: headNode, kid: k }));
+    wives.forEach(w => { (w.children || []).forEach(k => columns.push({ parent: w, kid: k })); });
+    return { head: headNode, wives: wives, columns: columns };
+  }
+
+  // Bottom-up: the horizontal space this subtree occupies.
+  function measure(snap) {
+    const widths = snap.columns.map(c => measure(snapshot(c.kid)));
+    const kidsSpan = widths.reduce((s, w) => s + w, 0) + SIB_GAP * Math.max(0, widths.length - 1);
+    const headW = labelWidth(snap.head.data);
+    const rowSpan = snap.wives.reduce((s, w) => s + MAN_WIFE_GAP + labelWidth(w.data), headW);
+    return Math.max(kidsSpan, rowSpan);
+  }
+  const rootSnap = snapshot(hierarchyRoot);
+  const rootWidth = measure(rootSnap);
+
+  // Top-down: absolute placement, each node positioned exactly once.
+  function place(snap, topY, leftBound, blockW) {
+    const kidWs = snap.columns.map(c => measure(snapshot(c.kid)));
+    // Children row: sequential, never overlapping.
+    let cursor = leftBound;
+    const colXs = snap.columns.map((c, i) => {
+      const cx = cursor + kidWs[i] / 2;
+      c.kid.x = cx;
+      c.kid.y = topY + rowSpace;
+      place(snapshot(c.kid), topY + rowSpace, cursor, kidWs[i]);
+      cursor += kidWs[i] + SIB_GAP;
+      return cx;
+    });
+    const kidsRight = snap.columns.length ? cursor - SIB_GAP : leftBound;
+
+    // The man centres over his own direct children (or floats left).
+    const ownIdx = [];
+    snap.columns.forEach((c, i) => { if (c.parent === snap.head) ownIdx.push(i); });
+    let manX;
+    if (ownIdx.length) {
+      const lo = colXs[ownIdx[0]], hi = colXs[ownIdx[ownIdx.length - 1]];
+      manX = (lo + hi) / 2;
+    } else {
+      manX = leftBound + labelWidth(snap.head.data) / 2;
     }
-  });
+    snap.head.x = manX;
+    snap.head.y = topY;
+    let rowRight = manX + labelWidth(snap.head.data) / 2;
+
+    // Wives sit horizontally beside the man, each above her own children.
+    snap.wives.forEach(w => {
+      const wIdx = [];
+      snap.columns.forEach((c, i) => { if (c.parent === w) wIdx.push(i); });
+      const ww = labelWidth(w.data);
+      let wx;
+      if (wIdx.length) {
+        wx = (colXs[wIdx[0]] + colXs[wIdx[wIdx.length - 1]]) / 2;
+      } else {
+        wx = rowRight + MAN_WIFE_GAP + ww / 2;
+      }
+      wx = Math.max(wx, rowRight + MAN_WIFE_GAP / 2 + ww / 2);
+      w.x = wx;
+      w.y = topY;
+      rowRight = Math.max(rowRight, wx + ww / 2);
+    });
+  }
+
+  place(rootSnap, 0, 0, rootWidth);
 }
 
 // ============================================================
@@ -438,26 +517,14 @@ function renderTree() {
 
   const hierarchyRoot = d3.hierarchy(root);
 
-  // Adaptive spacing: widen columns so long "Gikuyu wa Father" names and
-  // couple blocks never crowd, and open the generation gap so labels don't
-  // collide between rows.
+  // Adaptive spacing: widen columns so long "Gikuyu wa Father" names never
+  // crowd, and open the generation gap so labels don't collide between rows.
   let longestLabel = 12 * 7.2;
   persons.forEach(p => {
     const lbl = ((p.gikuyu_name || '') + ' wa ' + (p.fathers_name || '')).trim();
     longestLabel = Math.max(longestLabel, lbl.length * 7.2);
   });
-  let maxFanout = 1;
-  hierarchyRoot.each(n => { if (n.children) maxFanout = Math.max(maxFanout, n.children.length); });
-  const colSpace = Math.max(longestLabel + 60, 240, 240 + (maxFanout - 8) * 12);
   const rowSpace = Math.max(200, longestLabel / 3.5 + 130);
-
-  // Polygynous union blocks: the D3 tree assigns every sibling its own
-  // horizontal column (proportional to leaf counts), so wives and their child
-  // clusters automatically spread apart as people are added. Separation just
-  // adds a little breathing room between adjacent nodes.
-  const treeLayout = d3.tree()
-    .nodeSize([colSpace, rowSpace])
-    .separation((a, b) => (a.parent === b.parent ? 1.25 : 1.8));
 
   // Congestion control: move every collapsed branch into _children so the
   // layout, links, and descendants skip it (standard d3 collapse pattern).
@@ -468,11 +535,10 @@ function renderTree() {
     }
   });
 
-  treeLayout(hierarchyRoot);
-
-  // Lift each wife onto her key partner's row so the couple renders side by
-  // side while the children stay hanging vertically beneath the wife.
-  snapWivesToPartnerRow(hierarchyRoot.descendants());
+  // Polygynous bounding-box layout: wives on the husband's row, children one
+  // row below, sibling sub-trees pushed apart by their real widths — at every
+  // generation depth (replaces the rigid d3.tree + wife-snapping passes).
+  layoutFamilyTree(hierarchyRoot, rowSpace);
   const nodes = hierarchyRoot.descendants();
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
   nodes.forEach(n => {
