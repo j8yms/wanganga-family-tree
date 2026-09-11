@@ -125,7 +125,12 @@ function isDeceased(p) {
 
 function fullName(p) {
   if (!p) return '';
-  return ((p.gikuyu_name || '') + ' ' + (p.fathers_name || '') + ' ' + (p.other_names || '')).replace(/\s+/g, ' ').trim();
+  const g = (p.gikuyu_name || '').trim();
+  const f = (p.fathers_name || '').trim();
+  let s = g;
+  if (f) s += (s ? ' wa ' : '') + f;
+  if (p.other_names) s += ' ' + String(p.other_names).trim();
+  return s.replace(/\s+/g, ' ').trim();
 }
 
 // ============================================================
@@ -372,7 +377,7 @@ function renderLabels(g, p, cx) {
   g.append('text')
     .attr('class', 'node-label')
     .attr('x', cx).attr('y', 52)
-    .text(((p.gikuyu_name || '') + ' ' + (p.fathers_name || '')).trim());
+    .text(((p.gikuyu_name || '') + (p.fathers_name ? ' wa ' + p.fathers_name : '')).trim());
   g.append('text')
     .attr('class', 'node-sublabel')
     .attr('x', cx).attr('y', 66)
