@@ -1115,6 +1115,14 @@ function populateResearchForm(person) {
   document.getElementById('ir-place-death').value = person.place_of_death || '';
   document.getElementById('ir-living').value = isDeceased(person) ? 'false' : 'true';
   syncLivingUI('ir');
+  // Linked parents: pick the actual Father-Child / Mother-Child partners.
+  fillParentSelect('ir-father-link', person, (p) => String(p.gender).indexOf('Female') === -1);
+  fillParentSelect('ir-mother-link', person, (p) => String(p.gender).indexOf('Female') !== -1);
+  const linkedParents = parentsOf(person.person_id);
+  const fatherLink = linkedParents.find(p2 => String(p2.gender).indexOf('Female') === -1);
+  const motherLink = linkedParents.find(p2 => String(p2.gender).indexOf('Female') !== -1);
+  document.getElementById('ir-father-link').value = fatherLink ? fatherLink.person_id : '';
+  document.getElementById('ir-mother-link').value = motherLink ? motherLink.person_id : '';
   document.getElementById('ir-photo').value = '';
   delete document.getElementById('ir-photo').dataset.croppedDataUrl;
   delete document.getElementById('ir-photo').dataset.croppedMime;
@@ -1129,6 +1137,26 @@ function populateResearchForm(person) {
   }
 
   protectResearchTab(person);
+}
+
+function fillParentSelect(selectId, person, genderTest) {
+  const sel = document.getElementById(selectId);
+  if (!sel) return;
+  sel.innerHTML = '';
+  const none = document.createElement('option');
+  none.value = '';
+  none.textContent = '— none —';
+  sel.appendChild(none);
+  persons
+    .filter(p => p.person_id !== person.person_id && genderTest(p))
+    .sort((a, b) => (a.gikuyu_name || '').localeCompare(b.gikuyu_name || ''))
+    .forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p.person_id;
+      opt.textContent = [p.gikuyu_name, p.fathers_name].filter(Boolean).join(' wa ') +
+        (p.other_names ? ' (' + p.other_names + ')' : '');
+      sel.appendChild(opt);
+    });
 }
 
 function imgUrlForPreview(rawUrl) {
@@ -1173,6 +1201,10 @@ async function saveInfoResearch() {
   if (saveBtn) saveBtn.disabled = true;
   showToast('Saving…');
   try {
+    // Reconcile linked parents against the two selects (add/remove/change).
+    await reconcileParentLink(person, 'Father-Child', document.getElementById('ir-father-link').value);
+    await reconcileParentLink(person, 'Mother-Child', document.getElementById('ir-mother-link').value);
+
     const res = await apiPost(Object.assign({ action: 'updatePerson' }, data));
     if (!res.success) {
       showToast('Error: ' + (res.error || ''));
@@ -1187,6 +1219,33 @@ async function saveInfoResearch() {
     switchInfoTab('research');
   } finally {
     if (saveBtn) saveBtn.disabled = false;
+  }
+}
+
+// Point a person's Father-Child / Mother-Child link at a new parent ('' = none).
+// Deletes the old record of that type first so a parent is never duplicated, and
+// only then creates the replacement. Ownership/admin is enforced by the backend
+// on every write; admins and the profile creator pass automatically.
+async function reconcileParentLink(person, relType, wantId) {
+  if (wantId === person.person_id) return;
+  const current = relationships.find(r => r.child_id === person.person_id && r.rel_type === relType);
+  const currentId = current ? current.parent_id : '';
+  if (currentId === wantId) return;
+  if (current) {
+    const del = await apiPost({ action: 'deleteRelationship', relationship_id: current.relationship_id });
+    if (!del.success) {
+      showToast('Could not remove old ' + relType + ': ' + (del.error || ''));
+      return;
+    }
+  }
+  if (wantId) {
+    await apiPost({
+      action: 'createRelationship',
+      parent_id: wantId,
+      child_id: person.person_id,
+      rel_type: relType,
+      created_by: currentUserToken
+    });
   }
 }
 
