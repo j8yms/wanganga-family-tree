@@ -142,6 +142,13 @@ function sheetToJSON(sheetName) {
   var headers = data[0];
   var result = [];
   for (var i = 1; i < data.length; i++) {
+    // Skip blank leftover rows so only records that actually carry data are
+    // ever returned to the app.
+    var allBlank = true;
+    for (var k = 0; k < data[i].length; k++) {
+      if (String(data[i][k]).trim() !== '') { allBlank = false; break; }
+    }
+    if (allBlank) continue;
     var row = {};
     for (var j = 0; j < headers.length; j++) {
       row[headers[j]] = data[i][j];
@@ -224,8 +231,10 @@ function doGet(e) {
         });
 
       case 'getAll':
-        var persons = sheetToJSON(PERSONS_SHEET);
-        var relationships = sheetToJSON(RELATIONSHIPS_SHEET);
+        var persons = sheetToJSON(PERSONS_SHEET)
+          .filter(function(p) { return p.person_id && (p.gikuyu_name || p.fathers_name); });
+        var relationships = sheetToJSON(RELATIONSHIPS_SHEET)
+          .filter(function(r) { return r.relationship_id && r.parent_id && r.child_id && r.rel_type; });
         return jsonResponse({ success: true, persons: persons, relationships: relationships });
 
       case 'getPersons':
