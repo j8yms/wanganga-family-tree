@@ -436,15 +436,28 @@ function renderTree() {
     return;
   }
 
+  const hierarchyRoot = d3.hierarchy(root);
+
+  // Adaptive spacing: widen columns so long "Gikuyu wa Father" names and
+  // couple blocks never crowd, and open the generation gap so labels don't
+  // collide between rows.
+  let longestLabel = 12 * 7.2;
+  persons.forEach(p => {
+    const lbl = ((p.gikuyu_name || '') + ' wa ' + (p.fathers_name || '')).trim();
+    longestLabel = Math.max(longestLabel, lbl.length * 7.2);
+  });
+  let maxFanout = 1;
+  hierarchyRoot.each(n => { if (n.children) maxFanout = Math.max(maxFanout, n.children.length); });
+  const colSpace = Math.max(longestLabel + 60, 240, 240 + (maxFanout - 8) * 12);
+  const rowSpace = Math.max(200, longestLabel / 3.5 + 130);
+
   // Polygynous union blocks: the D3 tree assigns every sibling its own
   // horizontal column (proportional to leaf counts), so wives and their child
   // clusters automatically spread apart as people are added. Separation just
   // adds a little breathing room between adjacent nodes.
   const treeLayout = d3.tree()
-    .nodeSize([200, 170])
-    .separation((a, b) => (a.parent === b.parent ? 1.1 : 1.6));
-
-  const hierarchyRoot = d3.hierarchy(root);
+    .nodeSize([colSpace, rowSpace])
+    .separation((a, b) => (a.parent === b.parent ? 1.25 : 1.8));
 
   // Congestion control: move every collapsed branch into _children so the
   // layout, links, and descendants skip it (standard d3 collapse pattern).
@@ -1506,7 +1519,18 @@ function openAddPersonModal(linkParent, linkType) {
   document.getElementById('pf-photo-preview').classList.remove('has-photo');
 
   if (linkParent && linkType === 'child') {
-    document.getElementById('pf-father').value = linkParent.gikuyu_name;
+    // The Father's Name field must NEVER be filled with the clicked person's
+    // name when that person is the mother — it belongs to her husband.
+    const isMother = /female/i.test(String(linkParent.gender || '')) || String(linkParent.gender) === 'F';
+    if (!isMother) {
+      document.getElementById('pf-father').value = linkParent.gikuyu_name;
+    } else {
+      const husband = relationships
+        .filter(r => (r.parent_id === linkParent.person_id || r.child_id === linkParent.person_id) && /spouse/i.test(r.rel_type || ''))
+        .map(r => getPerson(r.parent_id === linkParent.person_id ? r.child_id : r.parent_id))
+        .find(p => p && !/female/i.test(String(p.gender || '')));
+      if (husband) document.getElementById('pf-father').value = husband.gikuyu_name;
+    }
   } else if (linkParent && linkType === 'sibling') {
     const fatherRel = relationships.find(r => r.child_id === linkParent.person_id && /father/i.test(r.rel_type || ''));
     if (fatherRel) {
