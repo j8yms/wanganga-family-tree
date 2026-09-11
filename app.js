@@ -129,7 +129,7 @@ function fullName(p) {
 }
 
 // ============================================================
-// Build Tree Hierarchy with Union Anchors
+// Build Tree Hierarchy
 // ============================================================
 function buildHierarchy() {
   const personMap = {};
@@ -153,80 +153,49 @@ function buildHierarchy() {
     if (personMap[w]) personMap[w].isWife = true;
   });
 
-  // -------------------------------------------------------
-  // Step 1: Build Mother-Father Union Blocks (couple anchors)
-  // -------------------------------------------------------
-  // For each wife, resolve her husband anchor. A "couple block" is identified
-  // by the primary anchor (the man who owns the tree-node cluster). Every wife
-  // keyed on the same anchor shares that husband as their marital partner.
-  const wifeToAnchor = {};
-  Object.keys(primaryOf).forEach(wifeId => {
-    wifeToAnchor[wifeId] = resolvePrimaryAnchor(wifeId);
-  });
+  // Tally how many wives each man's head node points to.
+  const wifeCountOf = {};
+  Object.keys(spousesOf).forEach(h => { wifeCountOf[h] = spousesOf[h].length; });
 
-  // Group wives by their husband anchor -> forms a couple block per anchor.
-  const anchorWives = {};
-  Object.entries(wifeToAnchor).forEach((anchorId, wifeId) => {
-    if (!anchorWives[anchorId]) anchorWives[anchorId] = [];
-    anchorWives[anchorId].push(wifeId);
-  });
-
-  // -------------------------------------------------------
-  // Step 2: Resolve where each non-wife person attaches.
-  //         Children always stem from their SPECIFIC Mother's union block,
-  //         not from the father universally.
-  // -------------------------------------------------------
+  // Decide where each non-wife person hangs:
+  //   - One wife:         the child springs from the UNION (hangs below the
+  //                       couple), so all of the man's children drop from a
+  //                       single line between him and his wife.
+  //   - Two+ wives:       the child springs from the SPECIFIC MOTHER, so the
+  //                       half-siblings cluster under their own mother's box.
+  //   - Mother only / unknown father's wives: fall back to that parent.
   const attachUnder = {};
   persons.forEach(p => {
     const pid = p.person_id;
     if (personMap[pid].isWife) return;
-
     const momRaw = motherOf[pid];
     const dadRaw = fatherOf[pid];
+    const mom = (momRaw && personMap[momRaw]) ? momRaw : null;
+    const dad = (dadRaw && personMap[(primaryOf[dadRaw] || dadRaw)]) ? (primaryOf[dadRaw] || dadRaw) : null;
 
-    // Resolve the mother node reference (may be null if unknown)
-    const momNode = (momRaw && personMap[momRaw]) ? momRaw : null;
-
-    // Resolve the father node reference - follow primary anchor chain
-    const dadNode = dadRaw && personMap[(primaryOf[dadRaw] || dadRaw)]
-      ? personMap[(primaryOf[dadRaw] || dadRaw)]
-      : null;
-
-    // If we know the child's mother, attach under that mother's subtree
-    // (this creates the Union Anchor: child -> mother -> husband anchor)
-    if (momNode) {
-      attachUnder[pid] = momNode.person_id;
+    if (dad && mom) {
+      const dadIsMan = !personMap[dad].isWife;
+      attachUnder[pid] = (dadIsMan && (wifeCountOf[dad] || 0) > 1) ? mom : dad;
       return;
     }
-
-    // Fallback: if no mother known, attach under father (if known)
-    if (dadNode) {
-      attachUnder[pid] = dadNode.person_id;
-      return;
-    }
-    // No parents known - this person becomes a root
+    if (dad) { attachUnder[pid] = dad; return; }
+    if (mom) { attachUnder[pid] = mom; }
   });
 
-  // -------------------------------------------------------
-  // Step 3: Attach wives to their husband's couple block.
-  //         Each wife becomes a child node of her anchor (the primary husband).
-  //         Wives keep their own children clusters beneath them.
-  // -------------------------------------------------------
-  Object.entries(anchorWives).forEach((anchorId, _) => {
-    const anchor = personMap[anchorId];
-    if (!anchor || anchor.isWife) return;
-    (anchorWives[anchorId] || []).forEach(wifeId => {
-      const wife = personMap[wifeId];
-      if (!wife) return;
-      // Wife attaches to her husband anchor - she becomes a sibling subtree
-      // that the D3 tree will lay out horizontally beside him.
-      anchor.children.push(wife);
+  // Wives become child nodes of their key partner (positioned horizontally
+  // beside them by the layout pass). Each wife keeps her own children.
+  Object.entries(spousesOf).forEach(([headId, partners]) => {
+    const head = personMap[headId];
+    if (!head || head.isWife) return;
+    (partners || []).forEach(w => {
+      const spouse = personMap[w];
+      if (!spouse) return;
+      if (attachUnder[w]) return; // already belongs to a parent branch
+      head.children.push(spouse);
     });
   });
 
-  // -------------------------------------------------------
-  // Step 4: Attach every child under its resolved parent (mother by default).
-  // -------------------------------------------------------
+  // Attach every child under its resolved parent (mother by default).
   Object.entries(attachUnder).forEach(([childId, parentId]) => {
     const child = personMap[childId];
     const parent = personMap[parentId];
@@ -234,29 +203,13 @@ function buildHierarchy() {
     parent.children.push(child);
   });
 
-  // -------------------------------------------------------
-  // Step 5: Identify root nodes for the hierarchy.
-  //         Roots are persons with no parent attachment AND are not wives.
-  //         Wives are already attached as children of their husband anchor
-  //         above, so they won't appear as top-level roots.
-  // -------------------------------------------------------
   const childIds = new Set(Object.keys(attachUnder));
 
   const roots = persons
     .filter(p => !childIds.has(p.person_id) && !personMap[p.person_id].isWife)
     .map(p => personMap[p.person_id]);
 
-  // If there are no roots (all persons are linked), create a virtual root.
-  if (roots.length === 0) {
-    // Check if there are any persons at all
-    if (persons.length === 0) return null;
-    // Create a virtual root from the first person as a fallback
-    return {
-      person_id: '__virtual__', gikuyu_name: 'Family', fathers_name: 'Tree',
-      other_names: '', gender: 'Male', is_living: true,
-      children: persons.map(p => personMap[p.person_id])
-    };
-  }
+  if (roots.length === 0) return null;
   if (roots.length > 1) {
     return {
       person_id: '__virtual__', gikuyu_name: 'Family', fathers_name: 'Tree',
