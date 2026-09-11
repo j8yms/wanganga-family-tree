@@ -38,6 +38,11 @@ let schemaReady = false;
 // hidden by an expand/collapse toggle badge on the node. Survives rerenders.
 const collapsedClusters = new Set();
 
+// Drag-to-link state: any real drag suppresses the node's click (radial menu)
+// for a short window so a drop never also opens the menu.
+let pendingDragLink = null;
+let suppressNodeClickUntil = 0;
+
 // ============================================================
 // API Layer
 // ============================================================
@@ -354,6 +359,7 @@ function renderAvatar(g, p, cx, updatedId) {
 
   group.on('click', (event) => {
     event.stopPropagation();
+    if (Date.now() < suppressNodeClickUntil) return; // just finished a drag
     if (window.isOnboardingSelectionMode) {
       handleNodeClickDuringOnboarding(p);
     } else {
@@ -408,6 +414,16 @@ function renderTree() {
 
   zoomBehavior = d3.zoom()
     .scaleExtent([0.1, 4])
+    .filter((event) => {
+      // Preserve wheel / dblclick zoom everywhere, but never start a pan when
+      // the gesture begins on a person node (that belongs to drag-to-link).
+      const onNode = (event.target && typeof event.target.closest === 'function')
+        ? event.target.closest('.node-group') : null;
+      if ((event.type === 'mousedown' || event.type === 'pointerdown' || event.type === 'touchstart') && onNode) {
+        return false;
+      }
+      return true;
+    })
     .on('zoom', (e) => svgGroup.attr('transform', e.transform));
   svg.call(zoomBehavior);
 
@@ -543,6 +559,48 @@ function renderTree() {
       badge.append('title').text(isCollapsed ? 'Expand this branch' : 'Collapse this branch');
     }
   });
+
+  // Drag a person node onto another to create a link (child / parent / spouse).
+  // The dragged node rides along with the pointer; dropping on a different node
+  // opens a chooser, and the link is written via the API on selection.
+  const dragLink = d3.drag()
+    .subject(d => ({ x: d.x, y: d.y }))
+    .on('start', function(event, d) {
+      suppressNodeClickUntil = 0;
+      d3.select(this).raise().classed('drag-source', true);
+      document.body.classList.add('drag-linking');
+      event.sourceEvent.stopPropagation();
+    })
+    .on('drag', function(event, d) {
+      d3.select(this).attr('transform', 'translate(' + event.x + ',' + event.y + ')');
+      svgGroup.selectAll('.node-group.drag-target').classed('drag-target', false);
+      const targetEl = findNodeGroupAt(event.sourceEvent);
+      if (targetEl) {
+        const td = d3.select(targetEl).datum();
+        if (td && td.data && td.data.person_id !== d.data.person_id) {
+          d3.select(targetEl).classed('drag-target', true);
+        }
+      }
+    })
+    .on('end', function(event, d) {
+      const g = d3.select(this);
+      g.classed('drag-source', false).attr('transform', 'translate(' + d.x + ',' + d.y + ')');
+      svgGroup.selectAll('.node-group.drag-target').classed('drag-target', false);
+      document.body.classList.remove('drag-linking');
+
+      const moved = Math.abs(event.x - d.x) > 4 || Math.abs(event.y - d.y) > 4;
+      const targetEl = moved ? findNodeGroupAt(event.sourceEvent) : null;
+      if (targetEl) {
+        const td = d3.select(targetEl).datum();
+        if (td && td.data && td.data.person_id !== d.data.person_id) {
+          openLinkMenu(d.data, td.data, event.sourceEvent);
+        } else {
+          showToast('Drop on a different person to link them.');
+        }
+      }
+      suppressNodeClickUntil = Date.now() + 350;
+    });
+  nodeGroups.call(dragLink);
 
   document.getElementById('loading').style.display = 'none';
 }
@@ -1786,6 +1844,95 @@ async function confirmUnlink(relId) {
   showToast(res.success ? 'Relationship removed' : 'Error: ' + (res.error || ''));
   await loadData();
 }
+
+// ============================================================
+// Drag-to-Link (drop a person onto another to create a link)
+// ============================================================
+function findNodeGroupAt(e) {
+  const active = document.querySelector('.node-group.drag-source');
+  if (!active) return null;
+  const prev = active.style.pointerEvents;
+  active.style.pointerEvents = 'none'; // let elementFromPoint see what's below
+  let el = null;
+  try { el = document.elementFromPoint(e.clientX, e.clientY); } catch (err) { el = null; }
+  active.style.pointerEvents = prev;
+  return (el && typeof el.closest === 'function') ? el.closest('.node-group') : null;
+}
+
+function openLinkMenu(source, target, event) {
+  pendingDragLink = { source: source, target: target };
+  const menu = document.getElementById('drag-link-menu');
+  menu.innerHTML =
+    '<div class="drag-link-title">Link ' + escapeHtml(fullName(source)) + ' with ' + escapeHtml(fullName(target)) + '</div>' +
+    '<button type="button" data-link="child">' + escapeHtml(fullName(source)) + ' is a child of ' + escapeHtml(fullName(target)) + '</button>' +
+    '<button type="button" data-link="parent">' + escapeHtml(fullName(source)) + ' is a parent of ' + escapeHtml(fullName(target)) + '</button>' +
+    '<button type="button" data-link="spouse">' + escapeHtml(fullName(source)) + ' and ' + escapeHtml(fullName(target)) + ' are spouses</button>';
+  menu.style.left = Math.min(event.clientX + 12, window.innerWidth - 300) + 'px';
+  menu.style.top = Math.min(event.clientY + 12, window.innerHeight - 180) + 'px';
+  menu.classList.add('active');
+}
+
+function hideLinkMenu() {
+  const menu = document.getElementById('drag-link-menu');
+  if (menu) menu.classList.remove('active');
+}
+
+async function createDragLink(kind, source, target) {
+  if (kind === 'spouse') {
+    // Keep the convention that the man is the "parent" side of a Spouse row.
+    const male = String(source.gender || '').toLowerCase() === 'male' || String(source.gender) === 'M';
+    const parentId = male ? source.person_id : target.person_id;
+    const childId = male ? target.person_id : source.person_id;
+    const anchor = resolvePrimaryAnchor(parentId);
+    return apiPost({
+      action: 'createRelationship',
+      parent_id: anchor,
+      child_id: childId,
+      rel_type: 'Spouse',
+      created_by: currentUserToken
+    });
+  }
+  if (kind === 'child') {
+    const relType = (String(target.gender || '').toLowerCase() === 'female' || String(target.gender) === 'F')
+      ? 'Mother-Child' : 'Father-Child';
+    return apiPost({
+      action: 'createRelationship',
+      parent_id: target.person_id,
+      child_id: source.person_id,
+      rel_type: relType,
+      created_by: currentUserToken
+    });
+  }
+  // parent
+  const relType = (String(source.gender || '').toLowerCase() === 'female' || String(source.gender) === 'F')
+    ? 'Mother-Child' : 'Father-Child';
+  return apiPost({
+    action: 'createRelationship',
+    parent_id: source.person_id,
+    child_id: target.person_id,
+    rel_type: relType,
+    created_by: currentUserToken
+  });
+}
+
+document.getElementById('drag-link-menu').addEventListener('click', async (e) => {
+  const btn = e.target && e.target.closest ? e.target.closest('button[data-link]') : null;
+  if (!btn) return;
+  const kind = btn.dataset.link;
+  const pending = pendingDragLink;
+  hideLinkMenu();
+  pendingDragLink = null;
+  if (!pending) return;
+  const res = await createDragLink(kind, pending.source, pending.target);
+  showToast(res.success ? 'Link created' : 'Error: ' + (res.error || ''));
+  await loadData();
+});
+document.addEventListener('click', (e) => {
+  if (!e.target || !e.target.closest || !e.target.closest('#drag-link-menu')) hideLinkMenu();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') hideLinkMenu();
+});
 
 // ============================================================
 // Onboarding with Autocomplete & Merge
