@@ -135,6 +135,25 @@ function ensureSchema() {
   }
 }
 
+// Repairs a sheet whose first row was overwritten by data (this happens when
+// the header row is deleted/cleared and appendRow then writes a record into
+// row 1). Detects the missing header and shifts the data down by inserting a
+// fresh header row at the top, making the misplaced records valid rows again.
+function ensureRowHeaders(sheet, headers) {
+  var lastCol = Math.max(sheet.getLastColumn(), 1);
+  var row1 = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+  var row1Key = row1.join('|');
+  if (row1Key.indexOf(headers[0]) !== -1) return; // header intact
+  sheet.insertRowsBefore(1, 1);
+  var fill = [];
+  for (var i = 0; i < headers.length; i++) fill.push(headers[i]);
+  var outRow = new Array(Math.max(lastCol, headers.length));
+  for (var k = 0; k < outRow.length; k++) {
+    outRow[k] = fill[k] || '';
+  }
+  sheet.getRange(1, 1, 1, outRow.length).setValues([outRow]);
+}
+
 function sheetToJSON(sheetName) {
   var sheet = getSheet(sheetName);
   var data = sheet.getDataRange().getValues();
@@ -231,6 +250,7 @@ function doGet(e) {
         });
 
       case 'getAll':
+        ensureRowHeaders(getSheet(RELATIONSHIPS_SHEET), RELATIONSHIP_HEADERS);
         var persons = sheetToJSON(PERSONS_SHEET)
           .filter(function(p) { return p.person_id && (p.gikuyu_name || p.fathers_name); });
         var relationships = sheetToJSON(RELATIONSHIPS_SHEET)
@@ -281,6 +301,7 @@ function doPost(e) {
         var createErrors = validatePersonInput(payload, false);
         if (createErrors.length > 0) return jsonResponse({ success: false, error: createErrors.join('; ') });
         var sheet = getSheet(PERSONS_SHEET);
+        ensureRowHeaders(sheet, PERSON_HEADERS);
         var newId = generateUUID();
         var uploadedUrl = "";
         if (payload.base64Image && payload.mimeType) {
@@ -433,6 +454,7 @@ function doPost(e) {
         var relErrors = validateRelationshipInput(payload);
         if (relErrors.length > 0) return jsonResponse({ success: false, error: relErrors.join('; ') });
         var relSheet = getSheet(RELATIONSHIPS_SHEET);
+        ensureRowHeaders(relSheet, RELATIONSHIP_HEADERS);
         var relId = generateUUID();
         relSheet.appendRow([
           relId,
