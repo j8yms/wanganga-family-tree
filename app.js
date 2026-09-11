@@ -137,9 +137,7 @@ function buildHierarchy() {
 
   const { primaryOf, spousesOf } = buildSpouseMaps();
 
-  // Biological mothers / fathers from the raw relationship rows. A child is
-  // charted under their specific mother so half-siblings cluster under their
-  // own Mother-Father union block instead of all hanging off the father.
+  // Biological mothers / fathers from the raw relationship rows.
   const motherOf = {};
   const fatherOf = {};
   relationships.forEach(r => {
@@ -155,16 +153,33 @@ function buildHierarchy() {
     if (personMap[w]) personMap[w].isWife = true;
   });
 
-  // Decide where each non-wife person hangs: under their mother (union block),
-  // else their father, else they are a forest root.
+  // Tally how many wives each man's head node points to.
+  const wifeCountOf = {};
+  Object.keys(spousesOf).forEach(h => { wifeCountOf[h] = spousesOf[h].length; });
+
+  // Decide where each non-wife person hangs:
+  //   - One wife:         the child springs from the UNION (hangs below the
+  //                       couple), so all of the man's children drop from a
+  //                       single line between him and his wife.
+  //   - Two+ wives:       the child springs from the SPECIFIC MOTHER, so the
+  //                       half-siblings cluster under their own mother's box.
+  //   - Mother only / unknown father's wives: fall back to that parent.
   const attachUnder = {};
   persons.forEach(p => {
     const pid = p.person_id;
     if (personMap[pid].isWife) return;
-    const mom = motherOf[pid];
-    if (mom && personMap[mom]) { attachUnder[pid] = mom; return; }
-    const dadResolved = fatherOf[pid] ? (primaryOf[fatherOf[pid]] || fatherOf[pid]) : null;
-    if (dadResolved && personMap[dadResolved]) { attachUnder[pid] = dadResolved; }
+    const momRaw = motherOf[pid];
+    const dadRaw = fatherOf[pid];
+    const mom = (momRaw && personMap[momRaw]) ? momRaw : null;
+    const dad = (dadRaw && personMap[(primaryOf[dadRaw] || dadRaw)]) ? (primaryOf[dadRaw] || dadRaw) : null;
+
+    if (dad && mom) {
+      const dadIsMan = !personMap[dad].isWife;
+      attachUnder[pid] = (dadIsMan && (wifeCountOf[dad] || 0) > 1) ? mom : dad;
+      return;
+    }
+    if (dad) { attachUnder[pid] = dad; return; }
+    if (mom) { attachUnder[pid] = mom; }
   });
 
   // Wives become child nodes of their key partner (positioned horizontally
