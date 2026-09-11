@@ -189,7 +189,19 @@ function buildHierarchy() {
       return;
     }
     if (dad) { attachUnder[pid] = dad; return; }
-    if (mom) { attachUnder[pid] = mom; }
+    if (mom) {
+      // Child known only through the mother. If she is the SOLE wife of her key
+      // husband, the child belongs to the couple and must hang under the man so
+      // it springs from the single-wife union bar (no explicit Father-Child
+      // record required).
+      const hus = primaryOf[mom];
+      if (hus && hus !== mom && personMap[hus] && !personMap[hus].isWife &&
+          (wifeCountOf[hus] || 0) === 1) {
+        attachUnder[pid] = hus;
+        return;
+      }
+      attachUnder[pid] = mom;
+    }
   });
 
   // Wives become child nodes of their key partner (positioned horizontally
