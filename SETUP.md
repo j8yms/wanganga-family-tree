@@ -123,6 +123,22 @@ https://<username>.github.io/family-tree/?onboard=1
 This forces the onboarding modal on load, letting relatives search for their
 name and merge or create a profile.
 
+## View-Only Link (Read-Only Sharing)
+
+To share a **read-only** version with family members who should only view
+(not edit), use the `?view=1` or `?readonly=1` parameter:
+```
+https://<username>.github.io/family-tree/?view=1
+```
+
+This mode:
+- Hides the **+ Add Person** button
+- Hides the **Admin** button
+- Disables right-click / radial menu on nodes
+- Hides **Edit**, **Delete**, and **Research** tabs in the info panel
+- Shows a "👁 View Only" badge
+- Still allows zoom/pan and clicking nodes to see LifeStory
+
 ## Admin Guide
 
 - The admin token lives in **Script Properties** (key `SUPERADMIN_TOKEN`), not

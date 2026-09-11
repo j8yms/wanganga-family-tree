@@ -18,9 +18,17 @@ const currentUserToken = (function () {
 const adminCode = (function () {
   try { return localStorage.getItem('wanganga_admin_code') || ''; } catch (e) { return ''; }
 })();
+// View-only mode: ?view=1 or ?readonly=1 in URL
+const isViewOnly = (function () {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('view') === '1' || params.get('readonly') === '1';
+  } catch (e) { return false; }
+})();
+
 function isSuperAdminLocal() { return !!adminCode; }
 function canManageRecord(rec) {
-  return String(rec.created_by || '') === currentUserToken || isSuperAdminLocal();
+  return !isViewOnly && (String(rec.created_by || '') === currentUserToken || isSuperAdminLocal());
 }
 
 // ============================================================
@@ -102,6 +110,41 @@ function buildSpouseMaps() {
     }
   });
   return { spouseOf, spousesOf, primaryOf };
+}
+
+// Get all spouses of a person (both directions)
+function getAllSpouses(personId) {
+  const { spousesOf, primaryOf } = buildSpouseMaps();
+  const spouses = new Set();
+  // Direct spouses (person is parent_id in spouse relationship)
+  if (spousesOf[personId]) {
+    spousesOf[personId].forEach(id => spouses.add(id));
+  }
+  // Reverse spouses (person is child_id in spouse relationship)
+  Object.keys(spousesOf).forEach(parentId => {
+    if (spousesOf[parentId].includes(personId)) {
+      spouses.add(parentId);
+    }
+  });
+  // Also follow primaryOf chain to get all spouses in polygamous cluster
+  let cur = personId;
+  const seen = new Set();
+  while (primaryOf[cur] && !seen.has(cur)) {
+    seen.add(cur);
+    cur = primaryOf[cur];
+  }
+  // cur is now the primary anchor
+  if (spousesOf[cur]) {
+    spousesOf[cur].forEach(id => spouses.add(id));
+  }
+  return Array.from(spouses);
+}
+
+// Get all parents of a person (both father and mother)
+function getAllParents(childId) {
+  return relationships
+    .filter(r => r.child_id === childId && /father|mother/i.test(r.rel_type || ''))
+    .map(r => ({ parentId: r.parent_id, relType: r.rel_type }));
 }
 
 // Follows the spouse-primary chain so a spouse-of-a-spouse always resolves to
@@ -1945,18 +1988,21 @@ async function savePerson() {
           });
           linked = lres.success;
         } else if (linkParentId && linkType === 'child') {
-          const linkParent = getPerson(linkParentId);
-          const lres = await apiPost({
-            action: 'createRelationship',
-            parent_id: linkParentId,
-            child_id: newId,
-            // The link type follows the PARENT being clicked: clicking a wife
-            // (Mother-Child) or a father correctly clusters the child under the
-            // specific mother's union block.
-            rel_type: linkParent && linkParent.gender === 'Female' ? 'Mother-Child' : 'Father-Child',
-            created_by: currentUserToken
-          });
-          linked = lres.success;
+          // Link new child to parent AND all parent's spouses
+          const parentsToLink = [linkParentId, ...getAllSpouses(linkParentId)];
+          linked = true;
+          for (const parentId of parentsToLink) {
+            const parent = getPerson(parentId);
+            const relType = parent && parent.gender === 'Female' ? 'Mother-Child' : 'Father-Child';
+            const lres = await apiPost({
+              action: 'createRelationship',
+              parent_id: parentId,
+              child_id: newId,
+              rel_type: relType,
+              created_by: currentUserToken
+            });
+            if (!lres.success) linked = false;
+          }
         } else if (linkParentId && linkType === 'sibling') {
           // Re-link the new person to every parent of the selected sibling, using
           // the same relationship type (Father-Child / Mother-Child) each parent had.
@@ -2088,25 +2134,51 @@ async function confirmLink(otherId) {
   const other = getPerson(otherId);
 
   if (linkDir === 'father' || linkDir === 'mother') {
+    // Link node as child of other (other is parent)
+    const relType = linkDir === 'mother' ? 'Mother-Child' : 'Father-Child';
     const res = await apiPost({
       action: 'createRelationship',
       parent_id: other.person_id,
       child_id: node.person_id,
-      rel_type: linkDir === 'mother' ? 'Mother-Child' : 'Father-Child',
+      rel_type: relType,
       created_by: currentUserToken
     });
-    showToast(res.success ? 'Parent link created' : 'Error: ' + (res.error || ''));
+    // Also link to other's spouses (so child has both parents)
+    if (res.success) {
+      const spouses = getAllSpouses(other.person_id);
+      for (const spouseId of spouses) {
+        const spouse = getPerson(spouseId);
+        if (spouse) {
+          const spouseRelType = spouse.gender === 'Female' ? 'Mother-Child' : 'Father-Child';
+          await apiPost({
+            action: 'createRelationship',
+            parent_id: spouseId,
+            child_id: node.person_id,
+            rel_type: spouseRelType,
+            created_by: currentUserToken
+          });
+        }
+      }
+    }
+    showToast(res.success ? 'Parent link created (and linked to spouses)' : 'Error: ' + (res.error || ''));
   } else if (linkDir === 'son' || linkDir === 'daughter') {
-    const res = await apiPost({
-      action: 'createRelationship',
-      parent_id: node.person_id,
-      child_id: other.person_id,
-      // Follow the clicked person's gender so a wife clicked as the parent
-      // creates a Mother-Child link (children cluster under her union block).
-      rel_type: node.gender === 'Female' ? 'Mother-Child' : 'Father-Child',
-      created_by: currentUserToken
-    });
-    showToast(res.success ? 'Child link created' : 'Error: ' + (res.error || ''));
+    // Link other as child of node (node is parent)
+    // Link to node AND all of node's spouses
+    const parentsToLink = [node.person_id, ...getAllSpouses(node.person_id)];
+    let allSuccess = true;
+    for (const parentId of parentsToLink) {
+      const parent = getPerson(parentId);
+      const relType = parent && parent.gender === 'Female' ? 'Mother-Child' : 'Father-Child';
+      const res = await apiPost({
+        action: 'createRelationship',
+        parent_id: parentId,
+        child_id: other.person_id,
+        rel_type: relType,
+        created_by: currentUserToken
+      });
+      if (!res.success) allSuccess = false;
+    }
+    showToast(allSuccess ? 'Child linked to all parents' : 'Some links failed');
   } else {
     const res = await apiPost({
       action: 'createRelationship',
@@ -2580,14 +2652,24 @@ async function linkUserToRelative(userId, relation, relative) {
   switch (relation) {
     case 'parent': {
       // The selected relative is the user's parent.
-      const relType = (relative.gender === 'Female' || relative.gender === 'F') ? 'Mother-Child' : 'Father-Child';
-      await createLink(relative.person_id, userId, relType);
+      // Link to relative AND all their spouses (so user has both parents)
+      const parentsToLink = [relative.person_id, ...getAllSpouses(relative.person_id)];
+      for (const parentId of parentsToLink) {
+        const parent = getPerson(parentId);
+        const relType = parent && parent.gender === 'Female' ? 'Mother-Child' : 'Father-Child';
+        await createLink(parentId, userId, relType);
+      }
       break;
     }
     case 'child': {
       // The selected relative is the user's child.
-      const relType = (document.getElementById('ob-gender').value === 'Female') ? 'Mother-Child' : 'Father-Child';
-      await createLink(userId, relative.person_id, relType);
+      // Link child to user AND all user's spouses
+      const parentsToLink = [userId, ...getAllSpouses(userId)];
+      for (const parentId of parentsToLink) {
+        const parent = getPerson(parentId);
+        const relType = parent && parent.gender === 'Female' ? 'Mother-Child' : 'Father-Child';
+        await createLink(parentId, relative.person_id, relType);
+      }
       break;
     }
     case 'spouse': {
@@ -2767,7 +2849,46 @@ document.getElementById('ob-photo-url').addEventListener('input', function () {
 
 reflectAdminUI();
 
+function applyViewOnlyMode() {
+  if (!isViewOnly) return;
+  
+  // Hide Add Person button
+  const addBtn = document.querySelector('button[onclick="openAddPersonModal(null)"]');
+  if (addBtn) addBtn.style.display = 'none';
+  
+  // Hide admin button
+  const adminBtn = document.getElementById('admin-btn');
+  if (adminBtn) adminBtn.style.display = 'none';
+  
+  // Disable node click/right-click (radial menu)
+  document.addEventListener('click', (e) => {
+    if (e.target.closest('.node-group')) e.stopImmediatePropagation();
+  }, true);
+  document.addEventListener('contextmenu', (e) => {
+    if (e.target.closest('.node-group')) e.preventDefault();
+  }, true);
+  
+  // Disable info modal edit/delete buttons
+  const editBtn = document.getElementById('act-edit');
+  const delBtn = document.getElementById('act-delete');
+  const researchBtn = document.getElementById('act-research');
+  if (editBtn) editBtn.style.display = 'none';
+  if (delBtn) delBtn.style.display = 'none';
+  if (researchBtn) researchBtn.style.display = 'none';
+  
+  // Disable onboarding
+  window.isOnboardingSelectionMode = false;
+  
+  // Show view-only badge
+  const badge = document.createElement('div');
+  badge.id = 'view-only-badge';
+  badge.textContent = '👁 View Only';
+  badge.style.cssText = 'position:fixed;bottom:20px;right:20px;background:var(--accent);color:#fff;padding:8px 16px;border-radius:20px;font-size:14px;font-weight:600;z-index:1000;box-shadow:0 4px 12px rgba(0,0,0,.15)';
+  document.body.appendChild(badge);
+}
+
 window.addEventListener('load', async () => {
+  applyViewOnlyMode();
   await loadData();
   checkOnboarding();
 });
