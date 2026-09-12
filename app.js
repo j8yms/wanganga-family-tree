@@ -119,25 +119,51 @@ async function loadData() {
   // Warm the anonymous Apps Script session: the very first request from a
   // fresh browser session performs a redirect/cookie handshake (a 404 or a
   // stalled hop), retried by the timeout in apiGet until it succeeds.
+  if (loadStatusEl) loadStatusEl.textContent = 'Connecting to data…';
+  if (retryBtnEl) retryBtnEl.style.display = 'none';
   try { await apiGet('init'); } catch (e) { /* best-effort warm-up */ }
   if (!schemaReady) {
     localStorage.setItem('wanganga_schema_ok', '1');
     schemaReady = true;
   }
-  let data;
-  try {
-    data = await apiGet('getAll');
-  } catch (e) {
-    showToast('Could not load the family data. Please refresh.');
-    return;
+
+  // Auto-retry the actual fetch: the anonymous handshake can still 404 or
+  // stall on the very first trip, so keep trying until data really arrives or
+  // the user cancels via the Retry button.
+  const MAX_LOAD_TRIES = 8;
+  let data = null;
+  let lastErr = null;
+  for (let attempt = 1; attempt <= MAX_LOAD_TRIES && !data; attempt++) {
+    if (loadStatusEl) loadStatusEl.textContent = 'Attempt ' + attempt + ' of ' + MAX_LOAD_TRIES + '…';
+    try {
+      data = await apiGet('getAll');
+      if (data && data.success) break;
+      data = null; // success:false -> treat as a failed attempt, keep retrying
+      lastErr = (data && data.error) || 'Unknown';
+    } catch (e) {
+      lastErr = e;
+      data = null;
+      if (attempt < MAX_LOAD_TRIES) await new Promise(r => setTimeout(r, 1500));
+    }
   }
-  if (!data.success) {
-    showToast('Error loading data: ' + (data.error || 'Unknown'));
+
+  if (!data || !data.success) {
+    if (loadStatusEl) loadStatusEl.textContent = 'Could not load the family tree.';
+    if (retryBtnEl) retryBtnEl.style.display = 'inline-block';
+    showToast('Could not load the family data. Tap Retry below, or refresh.');
     return;
   }
   persons = (data.persons || []).filter(p => p.person_id && (p.gikuyu_name || p.fathers_name));
   relationships = (data.relationships || []).filter(r => r.relationship_id && r.parent_id && r.child_id && r.rel_type);
+  if (loadStatusEl) loadStatusEl.textContent = '';
   renderTree();
+}
+
+const loadStatusEl = document.getElementById('load-status');
+const retryBtnEl = document.getElementById('load-retry-btn');
+function retryDataLoad() {
+  if (retryBtnEl) retryBtnEl.style.display = 'none';
+  loadData();
 }
 
 // ============================================================
