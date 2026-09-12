@@ -54,37 +54,74 @@ let suppressNodeClickUntil = 0;
 // ============================================================
 // API Layer
 // ============================================================
-async function apiGet(action, params = {}) {
-  const qs = new URLSearchParams({ action, ...params }).toString();
-  const res = await fetch(API_URL + '?' + qs);
-  return res.json();
+// Apps Script anonymous web apps: the FIRST request a fresh browser makes
+// performs a redirect/cookie handshake and returns a 404 HTML page; the very
+// next request succeeds. Retrying a few times makes loading reliable.
+async function apiGet(action, params = {}, tries = 3) {
+  let lastErr;
+  for (let i = 0; i < tries; i++) {
+    try {
+      const qs = new URLSearchParams({ action, ...params }).toString();
+      const res = await fetch(API_URL + '?' + qs);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const ct = res.headers.get('content-type') || '';
+      if (!ct.includes('json')) throw new Error('Non-JSON response (' + ct + ')');
+      return await res.json();
+    } catch (e) {
+      lastErr = e;
+      await new Promise(r => setTimeout(r, 1000));
+    }
+  }
+  throw lastErr;
 }
 
-async function apiPost(payload) {
+async function apiPost(payload, tries = 1) {
   payload.user_token = payload.user_token || currentUserToken;
   if (adminCode) payload.admin_token = payload.admin_token || adminCode;
-  const res = await fetch(API_URL, {
-    method: 'POST',
-    body: JSON.stringify(payload),
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' }
-  });
-  return res.json();
+  let lastErr;
+  for (let i = 0; i < tries; i++) {
+    try {
+      const res = await fetch(API_URL, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' }
+      });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const ct = res.headers.get('content-type') || '';
+      if (!ct.includes('json')) throw new Error('Non-JSON response (' + ct + ')');
+      return await res.json();
+    } catch (e) {
+      lastErr = e;
+      await new Promise(r => setTimeout(r, 1000));
+    }
+  }
+  throw lastErr;
 }
 
 // ============================================================
 // Data Loading
 // ============================================================
 async function loadData() {
+  // Warm the anonymous Apps Script session: the very first request from a
+  // fresh browser session returns a 404 HTML page (redirect handshake) but
+  // succeeds on retry, which is why views can appear empty on first open.
+  try { await apiGet('init', {}, 3); } catch (e) { /* best-effort warm-up */ }
   if (!schemaReady) {
     try {
       if (!localStorage.getItem('wanganga_schema_ok')) {
-        await apiGet('init');
+        await apiGet('init', {}, 3).catch(() => null);
         localStorage.setItem('wanganga_schema_ok', '1');
       }
     } catch (e) { /* ignore — init is best-effort */ }
     schemaReady = true;
   }
-  const data = await apiGet('getAll');
+  let data;
+  try {
+    data = await apiGet('getAll');
+  } catch (e) {
+    showToast('Could not load the family data. Please refresh.');
+    return;
+  }
   if (!data.success) {
     showToast('Error loading data: ' + (data.error || 'Unknown'));
     return;
