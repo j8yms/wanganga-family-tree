@@ -2047,20 +2047,27 @@ async function savePerson() {
           });
           linked = lres.success;
         } else if (linkParentId && linkType === 'child') {
-          // Link new child to parent AND all parent's spouses
-          const parentsToLink = [linkParentId, ...getAllSpouses(linkParentId)];
+          // Link new child to parent AND all parent's spouses. Every relationship
+          // call is individually guarded: a flaky API write must never abort the
+          // whole batch or leave the child half-linked.
+          const parentsToLink = [...new Set([linkParentId, ...getAllSpouses(linkParentId)])];
           linked = true;
           for (const parentId of parentsToLink) {
             const parent = getPerson(parentId);
             const relType = parent && parent.gender === 'Female' ? 'Mother-Child' : 'Father-Child';
-            const lres = await apiPost({
-              action: 'createRelationship',
-              parent_id: parentId,
-              child_id: newId,
-              rel_type: relType,
-              created_by: currentUserToken
-            });
-            if (!lres.success) linked = false;
+            try {
+              const lres = await apiPost({
+                action: 'createRelationship',
+                parent_id: parentId,
+                child_id: newId,
+                rel_type: relType,
+                created_by: currentUserToken
+              }, 2);
+              if (!lres || !lres.success) linked = false;
+            } catch (e) {
+              linked = false;
+              console.warn('Link child -> parent ' + parentId + ' failed:', e);
+            }
           }
         } else if (linkParentId && linkType === 'sibling') {
           // Re-link the new person to every parent of the selected sibling, using
@@ -2095,8 +2102,17 @@ async function savePerson() {
 
         if (!linked) {
           // Roll back so an unlinked person never appears as an orphaned root.
-          await apiPost({ action: 'deletePerson', person_id: newId });
-          showToast('Person added, but linking to the tree failed and was reverted.');
+          // Guard the rollback too: if it also throws, at least tell the user.
+          let rolledBack = false;
+          try {
+            const dr = await apiPost({ action: 'deletePerson', person_id: newId }, 2);
+            rolledBack = !!(dr && dr.success);
+          } catch (e) {
+            console.warn('Rollback deletePerson failed:', e);
+          }
+          showToast(rolledBack
+            ? 'Person added, but linking to the tree failed and was reverted.'
+            : 'Could not link the new person to ' + fullName(getPerson(linkParentId)) + '. Reload the page, then link them from the Research tab.');
           return;
         }
         showToast('Person added');
