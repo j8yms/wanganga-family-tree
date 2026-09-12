@@ -681,6 +681,22 @@ function avatarRadiusFor(descCount) {
   return Math.min(46, 32 + 13 * Math.min(1, Math.log2(1 + descCount) / Math.log2(17)));
 }
 
+// A couple shares ONE size: every spouse takes the strongest descendant total
+// in the marriage, so both avatars grow together and a founding couple is
+// always read as one unit (a childless wife next to a big patriarch no longer
+// stays tiny).
+function computeCoupleCounts() {
+  const own = computeDescendantCounts();
+  const counts = {};
+  persons.forEach(p => {
+    const members = [p.person_id, ...getAllSpouses(p.person_id)];
+    let best = 0;
+    members.forEach(id => { best = Math.max(best, own[id] || 0); });
+    counts[p.person_id] = best;
+  });
+  return counts;
+}
+
 // ============================================================
 // D3 Tree Rendering (horizontal spouses + photo + death styling)
 // ============================================================
@@ -748,8 +764,8 @@ function renderTree() {
   const nodes = hierarchyRoot.descendants();
 
   // Descendant-driven avatar sizing: count every child/grandchild/… once per
-  // person and pass the radius to renderAvatar so bigger families visually pop.
-  const descCounts = computeDescendantCounts();
+  // person, then give each couple a shared size (will render Radar to match).
+  const descCounts = computeCoupleCounts();
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
   nodes.forEach(n => {
     if (n.x < minX) minX = n.x;
