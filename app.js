@@ -500,8 +500,8 @@ function addDefs(svg) {
 // ============================================================
 // Avatar / Silhouette rendering
 // ============================================================
-function drawSilhouette(group, isFemale) {
-  const s = group.append('g').attr('opacity', 0.92).attr('fill', '#0f172a');
+function drawSilhouette(group, isFemale, scale) {
+  const s = group.append('g').attr('transform', 'scale(' + (scale || 1) + ')').attr('opacity', 0.92).attr('fill', '#0f172a');
   if (isFemale) {
     s.append('circle').attr('cy', -9).attr('r', 8);
     s.append('circle').attr('cx', 2).attr('cy', -15).attr('r', 3);
@@ -541,12 +541,14 @@ function convertToDirectStreamUrl(inputUrl) {
   return url;
 }
 
-function renderAvatar(g, p, cx, updatedId) {
+function renderAvatar(g, p, cx, updatedId, r) {
   const deceased = isDeceased(p);
   const isFemale = (p.gender === 'Female' || p.gender === 'F');
   const fill = isFemale ? '#f97316' : '#0d9488';
   const stroke = deceased ? '#1c1917' : (isFemale ? '#ea580c' : '#0f766e');
   const imgUrl = convertToDirectStreamUrl(p.photo_url);
+  const radius = r || 32;
+  const clipR = radius - 3;
 
   const group = g.append('g')
     .attr('transform', 'translate(' + cx + ',0)')
@@ -555,13 +557,13 @@ function renderAvatar(g, p, cx, updatedId) {
   // STRICT SINGLE-PATH RULE: one node circle may only render ONE state.
   const cid = 'clip_' + updatedId;
   g.append('clipPath').attr('id', cid)
-    .append('circle').attr('r', 29).attr('cx', cx).attr('cy', 0);
+    .append('circle').attr('r', clipR).attr('cx', cx).attr('cy', 0);
 
   if (imgUrl) {
     // PATH A: profile photo ONLY (circle-masked image inside a thin ring).
     group.append('circle')
       .attr('class', 'node-circle')
-      .attr('r', 32)
+      .attr('r', radius)
       .attr('fill', 'transparent')
       .attr('stroke', stroke)
       .attr('stroke-width', deceased ? 4 : 3)
@@ -570,8 +572,8 @@ function renderAvatar(g, p, cx, updatedId) {
     const photo = group.append('image')
       .attr('class', 'node-photo')
       .attr('href', imgUrl)
-      .attr('x', cx - 29).attr('y', -29)
-      .attr('width', 58).attr('height', 58)
+      .attr('x', cx - clipR).attr('y', -clipR)
+      .attr('width', clipR * 2).attr('height', clipR * 2)
       .attr('preserveAspectRatio', 'xMidYMid slice')
       .attr('clip-path', 'url(#' + cid + ')')
       .attr('filter', deceased ? 'url(#deceasedFilter)' : null);
@@ -584,18 +586,18 @@ function renderAvatar(g, p, cx, updatedId) {
         .attr('fill', fill)
         .attr('stroke', stroke)
         .attr('filter', deceased ? 'url(#deceasedFilter)' : null);
-      drawSilhouette(group, isFemale);
+      drawSilhouette(group, isFemale, radius / 32);
     });
   } else {
     // PATH B: gender vector placeholder ONLY (empty photo_url).
     group.append('circle')
       .attr('class', 'node-circle')
-      .attr('r', 32)
+      .attr('r', radius)
       .attr('fill', fill)
       .attr('stroke', stroke)
       .attr('stroke-width', deceased ? 4 : 3)
       .attr('filter', deceased ? 'url(#deceasedFilter)' : null);
-    drawSilhouette(group, isFemale);
+    drawSilhouette(group, isFemale, radius / 32);
   }
 
   group.on('click', (event) => {
@@ -623,22 +625,60 @@ function renderAvatar(g, p, cx, updatedId) {
   return group;
 }
 
-function renderLabels(g, p, cx) {
+function renderLabels(g, p, cx, r) {
+  const dy = (r || 32) - 32; // labels ride out with a larger avatar
   const deceased = isDeceased(p);
   g.append('text')
     .attr('class', 'node-label')
-    .attr('x', cx).attr('y', 52)
+    .attr('x', cx).attr('y', 52 + dy)
     .text(((p.gikuyu_name || '') + (p.fathers_name ? ' wa ' + p.fathers_name : '')).trim());
   g.append('text')
     .attr('class', 'node-sublabel')
-    .attr('x', cx).attr('y', 66)
+    .attr('x', cx).attr('y', 66 + dy)
     .text(p.other_names || '');
   if (deceased && p.death_year) {
     g.append('text')
       .attr('class', 'deceased-year')
-      .attr('x', cx).attr('y', 82)
+      .attr('x', cx).attr('y', 82 + dy)
       .text('\u2020 ' + p.death_year);
   }
+}
+
+// ============================================================
+// Descendant-driven avatar sizing
+// ============================================================
+// A person's avatar grows with the size of the clan they founded: every
+// descendant (children + grandchildren + …) adds to a soft-capped radius so a
+// big patriarch reads instantly while a leaf stays at the base size.
+function computeDescendantCounts() {
+  const counts = {};
+  const childrenOf = {};
+  relationships.forEach(r => {
+    const t = String(r.rel_type || '');
+    if (!/father|mother/i.test(t)) return;
+    (childrenOf[r.parent_id] = childrenOf[r.parent_id] || []).push(r.child_id);
+  });
+  function descendants(id, memo, seen) {
+    if (memo[id] !== undefined) return memo[id];
+    if (seen.has(id)) return 0; // corrupt-cycle guard
+    seen.add(id);
+    let total = 0;
+    (childrenOf[id] || []).forEach(cid => {
+      total += 1 + descendants(cid, memo, seen);
+    });
+    seen.delete(id);
+    memo[id] = total;
+    return total;
+  }
+  const memo = {};
+  persons.forEach(p => { counts[p.person_id] = descendants(p.person_id, memo, new Set()); });
+  return counts;
+}
+
+function avatarRadiusFor(descCount) {
+  if (!descCount || descCount <= 0) return 32;
+  // Soft cap: +13px of growth by ~17 descendants, asymptote just below 46.
+  return Math.min(46, 32 + 13 * Math.min(1, Math.log2(1 + descCount) / Math.log2(17)));
 }
 
 // ============================================================
@@ -706,6 +746,10 @@ function renderTree() {
   // generation depth (replaces the rigid d3.tree + wife-snapping passes).
   layoutFamilyTree(hierarchyRoot, rowSpace);
   const nodes = hierarchyRoot.descendants();
+
+  // Descendant-driven avatar sizing: count every child/grandchild/… once per
+  // person and pass the radius to renderAvatar so bigger families visually pop.
+  const descCounts = computeDescendantCounts();
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
   nodes.forEach(n => {
     if (n.x < minX) minX = n.x;
@@ -728,17 +772,20 @@ function renderTree() {
     .append('path')
     .attr('class', d => (Math.abs(d.source.y - d.target.y) < 2) ? 'link marriage' : 'link')
     .attr('d', d => {
+      const rSrc = avatarRadiusFor(descCounts[d.source.data.person_id] || 0);
+      const rTgt = avatarRadiusFor(descCounts[d.target.data.person_id] || 0);
       const sx = d.source.x;
-      const sy = d.source.y + (d.source.data.person_id === '__virtual__' ? 16 : 44);
+      const sy = d.source.y + (d.source.data.person_id === '__virtual__' ? 16 : rSrc + 12);
       const tx = d.target.x;
-      const ty = d.target.y - 44;
+      const ty = d.target.y - (rTgt + 12);
 
       // Marriage bar: wife lifted onto the key partner's row -> straight
       // horizontal line stretched between the two avatar rims.
       if (Math.abs(d.source.y - d.target.y) < 2) {
         const cy = d.source.y;
         const dir = tx >= sx ? 1 : -1;
-        return 'M' + (sx + dir * 40) + ',' + cy + ' L' + (tx - dir * 40) + ',' + cy;
+        const off = Math.max(rSrc, rTgt) + 6;
+        return 'M' + (sx + dir * off) + ',' + cy + ' L' + (tx - dir * off) + ',' + cy;
       }
 
       // Single-wife union: every child sprouts from the couple's midpoint —
@@ -771,14 +818,15 @@ function renderTree() {
     const g = d3.select(this);
 
     const pid1 = data.person_id.replace(/[^a-zA-Z0-9_-]/g, '') + '_' + (attrs.count++);
-    renderAvatar(g, data, 0, pid1);
-    renderLabels(g, data, 0);
+    const radius = avatarRadiusFor(descCounts[data.person_id] || 0);
+    renderAvatar(g, data, 0, pid1, radius);
+    renderLabels(g, data, 0, radius);
 
     if (!isDeceased(data)) {
       g.append('circle')
         .attr('class', 'living-dot')
-        .attr('cx', 24)
-        .attr('cy', -26)
+        .attr('cx', radius - 8)
+        .attr('cy', -(radius - 6))
         .attr('r', 6);
     }
 
@@ -790,7 +838,7 @@ function renderTree() {
       const isCollapsed = !!(d._children && d._children.length);
       const badge = g.append('g')
         .attr('class', 'collapse-badge')
-        .attr('transform', 'translate(24,28)')
+        .attr('transform', 'translate(' + Math.round(radius * 0.75) + ',' + Math.round(radius * 0.88) + ')')
         .style('cursor', 'pointer')
         .on('click', function(event) {
           event.stopPropagation();
