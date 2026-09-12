@@ -1003,7 +1003,16 @@ function renderInfoDashboard(person) {
   document.getElementById('info-timeline').innerHTML = renderLifeStoryTimeline(person);
   populateResearchForm(person);
 
-  switchInfoTab('actions');
+  switchInfoTab(isViewOnly ? 'lifestory' : 'actions');
+}
+
+// In view-only mode the sidebar shows a person's story but no editing: hide the
+// Actions and Research tabs so the drawer is purely informational.
+function applyViewOnlyPanel() {
+  const a = document.getElementById('tab-actions');
+  const r = document.getElementById('tab-research');
+  if (a) a.style.display = isViewOnly ? 'none' : '';
+  if (r) r.style.display = isViewOnly ? 'none' : '';
 }
 
 // Actionable baseline targets for the Actions tab (single source of triggers).
@@ -2931,6 +2940,7 @@ function applyViewOnlyMode() {
 
 window.addEventListener('load', async () => {
   applyViewOnlyMode();
+  applyViewOnlyPanel();
   await loadData();
   checkOnboarding();
 });
