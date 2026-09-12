@@ -1723,7 +1723,7 @@ async function loadVisits() {
   const tbody = document.querySelector('#visits-table tbody');
   if (!tbody || !meta) return;
   meta.textContent = 'Loading…';
-  tbody.innerHTML = '<tr><td colspan="6" style="padding:10px;color:#94a3b8">Fetching…</td></tr>';
+  tbody.innerHTML = '<tr><td colspan="7" style="padding:10px;color:#94a3b8">Fetching…</td></tr>';
   let res;
   try {
     res = await apiPost({ action: 'getVisits' });
@@ -1739,7 +1739,7 @@ async function loadVisits() {
   }
   const vs = res.visits || [];
   meta.textContent = (res.total || vs.length) + ' events logged. (Newest first, up to 500 shown.)';
-  if (!vs.length) { tbody.innerHTML = '<tr><td colspan="6" style="padding:10px;color:#94a3b8">No visits recorded yet.</td></tr>'; return; }
+  if (!vs.length) { tbody.innerHTML = '<tr><td colspan="7" style="padding:10px;color:#94a3b8">No visits recorded yet.</td></tr>'; return; }
   tbody.innerHTML = vs.map(v => {
     const when = fmtVisitTime(v.ts);
     const evtFull = String(v.event || '').toLowerCase();
@@ -1747,12 +1747,14 @@ async function loadVisits() {
       ? '<span style="color:#0d9488;font-weight:700">CLICK</span>'
       : '<span style="color:#94a3b8">VISIT</span>';
     const person = escapeHtml(String(v.person_name || '-'));
+    const dev = escapeHtml(describeDevice(v.user_agent));
     const loc = escapeHtml(String(v.location || ''));
     const mode = escapeHtml(String(v.mode || ''));
     const vis = escapeHtml(String(v.visitor_id || '').slice(0, 14));
     return '<tr><td style="padding:6px;border-bottom:1px solid #222">' + when + '</td>' +
       '<td style="padding:6px;border-bottom:1px solid #222">' + evtBadge + '</td>' +
       '<td style="padding:6px;border-bottom:1px solid #222">' + person + '</td>' +
+      '<td style="padding:6px;border-bottom:1px solid #222">' + dev + '</td>' +
       '<td style="padding:6px;border-bottom:1px solid #222">' + loc + '</td>' +
       '<td style="padding:6px;border-bottom:1px solid #222">' + mode + '</td>' +
       '<td style="padding:6px;border-bottom:1px solid #222;color:#94a3b8">' + vis + '</td></tr>';
@@ -1772,6 +1774,27 @@ function fmtVisitTime(ts) {
   if (diffMin < 60) return diffMin + 'm ago';
   if (now.toDateString() === d.toDateString()) return 'today ' + hh + ':' + mi;
   return datePart;
+}
+
+// Friendly device description from the raw User-Agent: OS + browser + (mobile).
+function describeDevice(ua) {
+  if (!ua) return '-';
+  const u = String(ua);
+  let os = 'Other';
+  let mob = '';
+  if (/iPhone/i.test(u)) { os = 'iPhone'; mob = '📱 '; }
+  else if (/iPad/i.test(u)) { os = 'iPad'; mob = '📱 '; }
+  else if (/Android/i.test(u)) { os = 'Android'; mob = '📱 '; }
+  else if (/Windows/i.test(u)) os = 'Windows';
+  else if (/Mac OS/i.test(u)) os = 'Mac';
+  else if (/Linux/i.test(u)) os = 'Linux';
+  let br = 'Browser';
+  if (/Edg\//i.test(u)) br = 'Edge';
+  else if (/OPR\//i.test(u) || /Opera/i.test(u)) br = 'Opera';
+  else if (/Firefox/i.test(u)) br = 'Firefox';
+  else if (/Chrome\//i.test(u)) br = 'Chrome';
+  else if (/Safari/i.test(u)) br = 'Safari';
+  return mob + os + ' · ' + br;
 }
 function toggleAdminUnlock() {
   if (isSuperAdminLocal()) {
