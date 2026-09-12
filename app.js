@@ -32,6 +32,58 @@ function canManageRecord(rec) {
 }
 
 // ============================================================
+// VISITOR TRACKING
+// ============================================================
+// A stable per-device id so the admin visit log can tell "the same phone
+// returning" from a one-off viewer, even in anonymous view-only mode.
+const visitorId = (function () {
+  try {
+    if (!localStorage.getItem('wanganga_visitor_id')) {
+      localStorage.setItem('wanganga_visitor_id', 'v_' + Math.random().toString(36).substring(2, 12) + Date.now().toString(36));
+    }
+  } catch (e) { /* storage unavailable */ }
+  return localStorage.getItem('wanganga_visitor_id') || 'v_unknown';
+})();
+
+// Approximate location, looked up once per device and cached locally. Fails
+// silently to plain '' so anonymous viewers are never blocked or slowed.
+let cachedLocation = (function () {
+  try { return localStorage.getItem('wanganga_visitor_loc') || ''; } catch (e) { return ''; }
+})();
+function maybeResolveLocation() {
+  if (cachedLocation) return;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 4000);
+  fetch('https://ipwho.is/', { signal: ctrl.signal })
+    .then(r => r.json())
+    .then(j => {
+      const parts = [];
+      if (j && j.city) parts.push(j.city);
+      if (j && j.country) parts.push(j.country);
+      cachedLocation = parts.join(', ');
+      try { localStorage.setItem('wanganga_visitor_loc', cachedLocation); } catch (e) {}
+    })
+    .catch(() => {})
+    .finally(() => clearTimeout(timer));
+}
+
+// Fire-and-forget event logger: never awaits, never throws, never blocks the
+// UI. Backend pre-checks events against an allow-list before writing.
+function logVisitorEvent(event, personName, personId) {
+  const payload = {
+    action: 'logEvent',
+    event: event,
+    visitor_id: visitorId,
+    mode: isViewOnly ? 'view' : 'edit',
+    location: cachedLocation,
+    user_agent: (navigator.userAgent || '').slice(0, 400)
+  };
+  if (personId) payload.person_id = personId;
+  if (personName) payload.person_name = personName;
+  apiPost(payload).catch(() => {});
+}
+
+// ============================================================
 // STATE
 // ============================================================
 let persons = [];
@@ -157,6 +209,10 @@ async function loadData() {
   relationships = (data.relationships || []).filter(r => r.relationship_id && r.parent_id && r.child_id && r.rel_type);
   if (loadStatusEl) loadStatusEl.textContent = '';
   renderTree();
+  // Visitor logging: fire-and-forget, done after a successful load so the
+  // first-view handshake never makes logging the thing that blanks the tree.
+  logVisitorEvent('visit');
+  maybeResolveLocation();
 }
 
 const loadStatusEl = document.getElementById('load-status');
@@ -1062,6 +1118,7 @@ function onNodeSelected(selectedPerson, event) {
   renderInfoDashboard(selectedPerson);
   setupActionButtons(selectedPerson);
   openModal('info-modal');
+  logVisitorEvent('click', shortName(selectedPerson), selectedPerson.person_id);
 }
 
 function renderInfoDashboard(person) {
@@ -1650,6 +1707,71 @@ function closeModal(id) { document.getElementById(id).classList.remove('active')
 function reflectAdminUI() {
   const b = document.getElementById('admin-btn');
   if (b) b.textContent = isSuperAdminLocal() ? '🔓 Admin' : '🔒 Admin';
+  const visitsBtn = document.getElementById('visits-btn');
+  if (visitsBtn) visitsBtn.style.display = isSuperAdminLocal() && !isViewOnly ? '' : 'none';
+  if (visitsBtn && isSuperAdminLocal() && !isViewOnly) {
+    visitsBtn.textContent = '👁 Visits';
+  }
+}
+function openVisitsModal() {
+  if (!isSuperAdminLocal()) { showToast('Unlock admin first to view the visitor log.'); return; }
+  openModal('visits-modal');
+  loadVisits();
+}
+async function loadVisits() {
+  const meta = document.getElementById('visits-meta');
+  const tbody = document.querySelector('#visits-table tbody');
+  if (!tbody || !meta) return;
+  meta.textContent = 'Loading…';
+  tbody.innerHTML = '<tr><td colspan="6" style="padding:10px;color:#94a3b8">Fetching…</td></tr>';
+  let res;
+  try {
+    res = await apiPost({ action: 'getVisits' });
+  } catch (e) {
+    meta.textContent = 'Could not reach the backend.';
+    tbody.innerHTML = '';
+    return;
+  }
+  if (!res || !res.success) {
+    meta.textContent = 'Error: ' + ((res && res.error) || 'unknown');
+    tbody.innerHTML = '';
+    return;
+  }
+  const vs = res.visits || [];
+  meta.textContent = (res.total || vs.length) + ' events logged. (Newest first, up to 500 shown.)';
+  if (!vs.length) { tbody.innerHTML = '<tr><td colspan="6" style="padding:10px;color:#94a3b8">No visits recorded yet.</td></tr>'; return; }
+  tbody.innerHTML = vs.map(v => {
+    const when = fmtVisitTime(v.ts);
+    const evtFull = String(v.event || '').toLowerCase();
+    const evtBadge = evtFull === 'click'
+      ? '<span style="color:#0d9488;font-weight:700">CLICK</span>'
+      : '<span style="color:#94a3b8">VISIT</span>';
+    const person = escapeHtml(String(v.person_name || '-'));
+    const loc = escapeHtml(String(v.location || ''));
+    const mode = escapeHtml(String(v.mode || ''));
+    const vis = escapeHtml(String(v.visitor_id || '').slice(0, 14));
+    return '<tr><td style="padding:6px;border-bottom:1px solid #222">' + when + '</td>' +
+      '<td style="padding:6px;border-bottom:1px solid #222">' + evtBadge + '</td>' +
+      '<td style="padding:6px;border-bottom:1px solid #222">' + person + '</td>' +
+      '<td style="padding:6px;border-bottom:1px solid #222">' + loc + '</td>' +
+      '<td style="padding:6px;border-bottom:1px solid #222">' + mode + '</td>' +
+      '<td style="padding:6px;border-bottom:1px solid #222;color:#94a3b8">' + vis + '</td></tr>';
+  }).join('');
+}
+function fmtVisitTime(ts) {
+  if (!ts) return '-';
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return String(ts);
+  const now = new Date();
+  const diffMin = Math.round((now - d) / 60000);
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mi = String(d.getMinutes()).padStart(2, '0');
+  const datePart = dd + '/' + mm + ' ' + hh + ':' + mi;
+  if (diffMin < 60) return diffMin + 'm ago';
+  if (now.toDateString() === d.toDateString()) return 'today ' + hh + ':' + mi;
+  return datePart;
 }
 function toggleAdminUnlock() {
   if (isSuperAdminLocal()) {

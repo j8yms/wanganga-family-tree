@@ -19,6 +19,7 @@
 <div id="toolbar">
   <h1>&#127793; Wang'ang'a Family Tree</h1>
   <div class="spacer"></div>
+  <button class="btn btn-ghost" id="visits-btn" onclick="openVisitsModal()" style="display:none">&#128065; Visits</button>
   <button class="btn btn-ghost" id="admin-btn" onclick="toggleAdminUnlock()">&#128274; Admin</button>
   <button class="btn btn-ghost" onclick="zoomReset()">Reset View</button>
 </div>
@@ -45,6 +46,33 @@
         <button class="btn btn-primary" onclick="submitAdminUnlock()">Unlock</button>
       </div>
     </form>
+  </div>
+</div>
+
+<!-- Visits Modal (admin-only view of the visitor log) -->
+<div class="modal-overlay" id="visits-modal" onclick="if(event.target===this)closeModal('visits-modal')">
+  <div class="modal" style="max-width:760px;max-height:85vh;overflow-y:auto">
+    <h2>Visitor Log</h2>
+    <div class="subtitle" id="visits-meta">Loading…</div>
+    <div class="modal-actions" style="justify-content:flex-start">
+      <button class="btn btn-ghost" onclick="loadVisits()">&#128260; Refresh</button>
+    </div>
+    <table id="visits-table" style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead>
+        <tr>
+          <th style="text-align:left;padding:6px;border-bottom:1px solid #444">When</th>
+          <th style="text-align:left;padding:6px;border-bottom:1px solid #444">Event</th>
+          <th style="text-align:left;padding:6px;border-bottom:1px solid #444">Person</th>
+          <th style="text-align:left;padding:6px;border-bottom:1px solid #444">Location</th>
+          <th style="text-align:left;padding:6px;border-bottom:1px solid #444">Mode</th>
+          <th style="text-align:left;padding:6px;border-bottom:1px solid #444">Visitor</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('visits-modal')">Close</button>
+    </div>
   </div>
 </div>
 

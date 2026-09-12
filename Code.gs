@@ -7,6 +7,7 @@
 
 var PERSONS_SHEET = 'Persons';
 var RELATIONSHIPS_SHEET = 'Relationships';
+var VISITS_SHEET = 'Visits';
 
 // REDACTED: the spreadsheet ID is NOT stored in this file. It is read from the
 // Script Property "SPREADSHEET_ID". Set it once in Project Settings > Script
@@ -21,6 +22,7 @@ function getSpreadsheetId() {
 
 var PERSON_HEADERS = ['person_id', 'gikuyu_name', 'fathers_name', 'other_names', 'gender', 'is_living', 'birth_year', 'photo_url', 'death_year', 'created_by', 'place_of_birth', 'place_of_living', 'place_of_death', 'birth_qualifier', 'birth_month', 'birth_day', 'death_qualifier', 'death_month', 'death_day'];
 var RELATIONSHIP_HEADERS = ['relationship_id', 'parent_id', 'child_id', 'rel_type', 'spouse_link_id', 'created_by'];
+var VISIT_HEADERS = ['visit_id', 'ts', 'visitor_id', 'event', 'person_id', 'person_name', 'mode', 'location', 'user_agent', 'user_token'];
 
 // ---- Super-admin override ----
 // The admin token is read from the Script Property "SUPERADMIN_TOKEN" so you
@@ -114,6 +116,8 @@ function getSheet(name) {
       sheet.appendRow(PERSON_HEADERS);
     } else if (name === RELATIONSHIPS_SHEET) {
       sheet.appendRow(RELATIONSHIP_HEADERS);
+    } else if (name === VISITS_SHEET) {
+      sheet.appendRow(VISIT_HEADERS);
     }
   }
   return sheet;
@@ -482,6 +486,52 @@ function doPost(e) {
 
         drSheet.deleteRow(drRow);
         return jsonResponse({ success: true });
+
+      // ---- VISITOR LOGGING ----
+      // Fire-and-forget from the browser: page loads log a 'visit', opening a
+      // person logs a 'click'. No auth — anonymous view-only visitors are the
+      // whole point. Only whitelisted event strings are recorded.
+      case 'logEvent':
+        var allowedEvents = ['visit', 'click'];
+        var evt = String(payload.event || '').toLowerCase();
+        if (allowedEvents.indexOf(evt) === -1) {
+          return jsonResponse({ success: false, error: 'Unknown event' });
+        }
+        var vSheet = getSheet(VISITS_SHEET);
+        ensureRowHeaders(vSheet, VISIT_HEADERS);
+        vSheet.appendRow([
+          generateUUID(),
+          new Date(),
+          String(payload.visitor_id || '').slice(0, 100),
+          evt,
+          String(payload.person_id || '').slice(0, 100),
+          String(payload.person_name || '').slice(0, 200),
+          String(payload.mode || '').slice(0, 20),
+          String(payload.location || '').slice(0, 200),
+          String(payload.user_agent || '').slice(0, 500),
+          String(payload.user_token || '').slice(0, 100)
+        ]);
+        return jsonResponse({ success: true });
+
+      // ---- ADMIN: READ VISITOR LOG (newest first) ----
+      case 'getVisits':
+        if (!isSuperAdminToken(payload.admin_token || payload.user_token || '')) {
+          return jsonResponse({ success: false, error: 'Unauthorized: admin token required.' });
+        }
+        var vvSheet = getSheet(VISITS_SHEET);
+        var vvData = vvSheet.getDataRange().getValues();
+        if (vvData.length < 2) return jsonResponse({ success: true, visits: [] });
+        var vvHeaders = vvData[0];
+        var visits = [];
+        // Walk bottom-up (newest row is usually last) and cap the reply.
+        for (var vi = vvData.length - 1; vi >= 1 && visits.length < 500; vi--) {
+          var row = {};
+          for (var vj = 0; vj < vvHeaders.length; vj++) {
+            row[vvHeaders[vj]] = vvData[vi][vj];
+          }
+          visits.push(row);
+        }
+        return jsonResponse({ success: true, visits: visits, total: vvData.length - 1 });
 
       // ---- SEARCH (POST) ----
       case 'search':
