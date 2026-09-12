@@ -55,21 +55,30 @@ let suppressNodeClickUntil = 0;
 // API Layer
 // ============================================================
 // Apps Script anonymous web apps: the FIRST request a fresh browser makes
-// performs a redirect/cookie handshake and returns a 404 HTML page; the very
-// next request succeeds. Retrying a few times makes loading reliable.
+// performs a redirect/cookie handshake and can return a 404 HTML page — or, on
+// some networks, stall on the auth redirect entirely. To make views reliable
+// everywhere, every call gets a short timeout and retries. The request to the
+// API itself is idempotent for reads; writes default to a single attempt so a
+// timed-out-but-executed save is never duplicated.
+const API_TIMEOUT_MS = 10000;
+
 async function apiGet(action, params = {}, tries = 3) {
   let lastErr;
   for (let i = 0; i < tries; i++) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), API_TIMEOUT_MS);
     try {
       const qs = new URLSearchParams({ action, ...params }).toString();
-      const res = await fetch(API_URL + '?' + qs);
+      const res = await fetch(API_URL + '?' + qs, { signal: ctrl.signal });
+      clearTimeout(timer);
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const ct = res.headers.get('content-type') || '';
       if (!ct.includes('json')) throw new Error('Non-JSON response (' + ct + ')');
       return await res.json();
     } catch (e) {
+      clearTimeout(timer);
       lastErr = e;
-      await new Promise(r => setTimeout(r, 1000));
+      await new Promise(r => setTimeout(r, 1200));
     }
   }
   throw lastErr;
@@ -80,19 +89,24 @@ async function apiPost(payload, tries = 1) {
   if (adminCode) payload.admin_token = payload.admin_token || adminCode;
   let lastErr;
   for (let i = 0; i < tries; i++) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), API_TIMEOUT_MS);
     try {
       const res = await fetch(API_URL, {
         method: 'POST',
         body: JSON.stringify(payload),
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' }
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        signal: ctrl.signal
       });
+      clearTimeout(timer);
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const ct = res.headers.get('content-type') || '';
       if (!ct.includes('json')) throw new Error('Non-JSON response (' + ct + ')');
       return await res.json();
     } catch (e) {
+      clearTimeout(timer);
       lastErr = e;
-      await new Promise(r => setTimeout(r, 1000));
+      await new Promise(r => setTimeout(r, 1200));
     }
   }
   throw lastErr;
@@ -103,16 +117,11 @@ async function apiPost(payload, tries = 1) {
 // ============================================================
 async function loadData() {
   // Warm the anonymous Apps Script session: the very first request from a
-  // fresh browser session returns a 404 HTML page (redirect handshake) but
-  // succeeds on retry, which is why views can appear empty on first open.
-  try { await apiGet('init', {}, 3); } catch (e) { /* best-effort warm-up */ }
+  // fresh browser session performs a redirect/cookie handshake (a 404 or a
+  // stalled hop), retried by the timeout in apiGet until it succeeds.
+  try { await apiGet('init'); } catch (e) { /* best-effort warm-up */ }
   if (!schemaReady) {
-    try {
-      if (!localStorage.getItem('wanganga_schema_ok')) {
-        await apiGet('init', {}, 3).catch(() => null);
-        localStorage.setItem('wanganga_schema_ok', '1');
-      }
-    } catch (e) { /* ignore — init is best-effort */ }
+    localStorage.setItem('wanganga_schema_ok', '1');
     schemaReady = true;
   }
   let data;
