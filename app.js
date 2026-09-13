@@ -643,6 +643,22 @@ function buildHierarchy() {
     parent.children.push(child);
   });
 
+  // A married woman whose own parents are known also appears under her birth
+  // family (as a childless copy, so her children are not duplicated): the
+  // original stays beside her husband, and the layout treats the copy as a
+  // normal child of her father/mother branch.
+  Object.keys(primaryOf).forEach(w => {
+    const wife = personMap[w];
+    if (!wife || !wife.isWife) return;
+    const dad = (fatherOf[w] && personMap[fatherOf[w]]) ? fatherOf[w] : null;
+    const mom = (motherOf[w] && personMap[motherOf[w]]) ? motherOf[w] : null;
+    const parentId = dad || mom;
+    if (!parentId || !personMap[parentId]) return;
+    const parent = personMap[parentId];
+    if (parent.isWife) return;
+    parent.children.push(Object.assign({}, wife, { children: [], isWife: false, _parentCopy: true }));
+  });
+
   const childIds = new Set(Object.keys(attachUnder));
 
   const roots = persons
