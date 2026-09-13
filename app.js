@@ -182,6 +182,13 @@ function relationshipExists(parentId, childId, relType) {
 }
 
 async function createRelationshipSafe(parentId, childId, relType) {
+  // Spouse rows must key the man as parent_id, or the renderer walks the pair
+  // backwards and his whole cluster un-routes. Orient by gender: if the row was
+  // written reversed (woman as parent, man known as the child), swap it now.
+  if (String(relType).toLowerCase() === 'spouse') {
+    const ga = genderOf(parentId), gb = genderOf(childId);
+    if (isFemaleGender(ga) && isMaleGender(gb)) { const t = parentId; parentId = childId; childId = t; }
+  }
   const payload = { action: 'createRelationship', parent_id: parentId, child_id: childId, rel_type: relType, created_by: currentUserToken };
   if (relationshipExists(parentId, childId, relType)) return { success: true, skipped: true };
 
@@ -304,17 +311,41 @@ function retryDataLoad() {
 // ============================================================
 // Helpers
 // ============================================================
+function isMaleGender(v) {
+  const s = String(v || '').trim().toLowerCase();
+  return s === 'male' || s === 'm';
+}
+function isFemaleGender(v) {
+  const s = String(v || '').trim().toLowerCase();
+  return s === 'female' || s === 'f';
+}
+function genderOf(personId) {
+  const p = getPerson(personId);
+  return p ? String(p.gender || '').trim() : '';
+}
+
+// The sheet allows Spouse rows in either direction; only the Male-must-be-parent
+// convention keeps the hub stable. Rows written reversed (woman as parent) would
+// mark the HUSBAND as a "wife" and un-route his whole cluster, so every spouse
+// row is re-oriented here by gender before it feeds the layout. Duplicate
+// reversed mirror rows (same unordered pair) are collapsed to one entry.
 function buildSpouseMaps() {
   const spouseOf = {};
   const spousesOf = {};
   const primaryOf = {};
+  const seen = new Set();
   relationships.forEach(r => {
-    if (r.rel_type && String(r.rel_type).toLowerCase() === 'spouse') {
-      spouseOf[r.parent_id] = r.child_id;
-      if (!spousesOf[r.parent_id]) spousesOf[r.parent_id] = [];
-      spousesOf[r.parent_id].push(r.child_id);
-      primaryOf[r.child_id] = r.parent_id;
-    }
+    if (!(r.rel_type && String(r.rel_type).toLowerCase() === 'spouse')) return;
+    let a = r.parent_id, b = r.child_id;
+    const ga = genderOf(a), gb = genderOf(b);
+    if (isFemaleGender(ga) && isMaleGender(gb)) { const t = a; a = b; b = t; }
+    const key = [a, b].sort().join('|');
+    if (seen.has(key)) return;
+    seen.add(key);
+    spouseOf[a] = b;
+    if (!spousesOf[a]) spousesOf[a] = [];
+    spousesOf[a].push(b);
+    primaryOf[b] = a;
   });
   return { spouseOf, spousesOf, primaryOf };
 }
@@ -2511,7 +2542,12 @@ async function confirmLink(otherId) {
     }
     showToast(allSuccess ? 'Child linked to all parents' : 'Some links failed');
   } else {
-    const res = await createRelationshipSafe(node.person_id, other.person_id, 'Spouse');
+    // Spouse rows must be keyed on the man; orient by gender so a woman picked
+    // as the clicked node still produces a correct male-anchored row.
+    const ga = genderOf(node.person_id), gb = genderOf(other.person_id);
+    const parentId = (isFemaleGender(ga) && isMaleGender(gb)) ? other.person_id : node.person_id;
+    const childId = (parentId === node.person_id) ? other.person_id : node.person_id;
+    const res = await createRelationshipSafe(parentId, childId, 'Spouse');
     showToast(res.success ? 'Spouse link created' : 'Error: ' + (res.error || ''));
   }
   await loadData();
