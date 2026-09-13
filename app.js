@@ -801,6 +801,11 @@ function layoutFamilyTree(hierarchyRoot, rowSpace) {
   const MAN_WIFE_GAP = 30;
   const SIB_GAP = 56;
 
+  // Heads that get the special "hub" layout: the man sits EXACTLY at the
+  // midpoint of his marriage fan (equidistant from the two outer wives) and
+  // his kidless wives hug him on either side.
+  const HUB_MIDPOINTS = new Set(['7fc20e59-737f-41e3-8dd5-c4550a676041']);
+
   // Snapshot of one head's own fan: his wives and the ordered list of
   // children columns (his own kids first, then each wife's kids underneath).
   function snapshot(headNode) {
@@ -822,6 +827,40 @@ function layoutFamilyTree(hierarchyRoot, rowSpace) {
       snap.columns.some(c => c.parent === snap.head);
   }
 
+  // Hub-head positions, all relative to the block start: children columns run
+  // from it, wives-with-kids sit over their own child blocks, the man is placed
+  // EXACTLY in the middle of the marriage row (his distance to the leftmost and
+  // rightmost wife is identical), and his kidless wives hug him on either side.
+  // Returns null when there is no anchored wife to centre between.
+  function hubFan(snap, kidWs) {
+    const headW = labelWidth(snap.head.data);
+    const colStarts = [0];
+    for (let i = 1; i < kidWs.length; i++) colStarts.push(colStarts[i - 1] + kidWs[i - 1] + SIB_GAP);
+    const anchored = [];
+    const kidless = [];
+    snap.wives.forEach(w => {
+      const wIdx = [];
+      snap.columns.forEach((c, i) => { if (c.parent === w) wIdx.push(i); });
+      const ww = labelWidth(w.data);
+      if (wIdx.length) {
+        const span = wIdx.reduce((s, idx, j) => s + kidWs[idx] + (j ? SIB_GAP : 0), 0);
+        anchored.push({ w, x: colStarts[wIdx[0]] + span / 2, ww });
+      } else {
+        kidless.push({ w, ww, x: 0 });
+      }
+    });
+    if (!anchored.length) return null;
+    const minX = Math.min.apply(null, anchored.map(a => a.x));
+    const maxX = Math.max.apply(null, anchored.map(a => a.x));
+    const manX = (minX + maxX) / 2;
+    let side = -1;
+    kidless.forEach(k => {
+      k.x = manX + side * (headW / 2 + MAN_WIFE_GAP + k.ww / 2);
+      side = -side;
+    });
+    return { manX, wives: anchored.concat(kidless) };
+  }
+
   // Bottom-up: the exact horizontal span this subtree occupies.
   // Offsets are measured from the MAN's centre (he sits at x=0 here); the
   // returned width is translation-invariant, so it also works top-down.
@@ -838,6 +877,26 @@ function layoutFamilyTree(hierarchyRoot, rowSpace) {
       return Math.max(1, right - left);
     }
 
+    // Hub heads: man-centred marriage fan (see hubFan). The man sits exactly in
+    // the middle of his fan; the block is widened to be SYMMETRIC around him
+    // (left edge at the block start) so his father, who centres over this whole
+    // subtree, lands directly above him. Falls back to the content width if the
+    // fan is too wide to stay symmetric.
+    if (HUB_MIDPOINTS.has(snap.head.data.person_id)) {
+      const fan = hubFan(snap, kidWs);
+      if (fan) {
+        let left = 0, right = kidsSpan;
+        left = Math.min(left, fan.manX - headW / 2);
+        right = Math.max(right, fan.manX + headW / 2);
+        fan.wives.forEach(v => {
+          left = Math.min(left, v.x - v.ww / 2);
+          right = Math.max(right, v.x + v.ww / 2);
+        });
+        const half = Math.max(fan.manX - left, right - fan.manX);
+        return Math.max(1, Math.max(2 * half, right));
+      }
+    }
+
     // General (2+ wives, mother-sprout, or leaf): children run from the block
     // start; the man centres over his own direct children (or floats left),
     // then his wives trail right of him.
@@ -848,7 +907,6 @@ function layoutFamilyTree(hierarchyRoot, rowSpace) {
       if (c.parent === snap.head) ownBlock += kidWs[i] + (ownBlock ? SIB_GAP : 0);
     });
     if (ownBlock) manCenter = ownBlock / 2;
-    else if (kidWs.length) manCenter = kidsSpan / 2;   // man with no own kids: centre over his wives' fan
     return Math.max(kidsSpan, manCenter + wRow);
   }
   const rootSnap = snapshot(hierarchyRoot);
@@ -881,6 +939,24 @@ function layoutFamilyTree(hierarchyRoot, rowSpace) {
       return;
     }
 
+    // Hub heads: children run from the block start; wives-with-kids sit over
+    // their blocks, the man exactly midway in the fan, kidless wives on his
+    // flanks (see hubFan).
+    if (HUB_MIDPOINTS.has(snap.head.data.person_id)) {
+      const fan = hubFan(snap, kidWs);
+      if (fan) {
+        let cursor = leftBound;
+        snap.columns.forEach((c, i) => {
+          place(snapshot(c.kid), topY + rowSpace, cursor);
+          cursor += kidWs[i] + SIB_GAP;
+        });
+        fan.wives.forEach(v => { v.w.x = leftBound + v.x; v.w.y = topY; });
+        snap.head.x = leftBound + fan.manX;
+        snap.head.y = topY;
+        return;
+      }
+    }
+
     // General branch: children in one row under their (seated) parent.
     let cursor = leftBound;
     snap.columns.forEach((c, i) => {
@@ -888,19 +964,14 @@ function layoutFamilyTree(hierarchyRoot, rowSpace) {
       cursor += kidWs[i] + SIB_GAP;
     });
 
-    // The man centres over his own direct children, or over his wives' whole
-    // fan when all his children hang under their mothers (typical polygynous
-    // household with no motherless children).
+    // The man centres over his own direct children (or floats left; his widowed
+    // fathers fan their kidless wives to the right).
     let manCenter = 0;
     let ownBlock = 0;
     snap.columns.forEach((c, i) => {
       if (c.parent === snap.head) ownBlock += kidWs[i] + (ownBlock ? SIB_GAP : 0);
     });
     if (ownBlock) manCenter = ownBlock / 2;
-    else if (kidWs.length) {
-      const kidsSpan = kidWs.reduce((s, w) => s + w, 0) + SIB_GAP * Math.max(0, kidWs.length - 1);
-      manCenter = kidsSpan / 2;
-    }
     const manX = leftBound + manCenter;
     snap.head.x = manX;
     snap.head.y = topY;
