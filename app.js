@@ -622,6 +622,29 @@ function buildHierarchy() {
     }
   });
 
+  // A man with no parents of his own folds his WHOLE household (wife + their
+  // children) under his wife's parent branch, so a daughter's family renders
+  // inside her father's umbrella instead of floating as a disconnected tree.
+  // (The wife's own parent link is enough; the husband itself is attached as
+  // the child, so there is no duplicate copy of anyone.)
+  Object.keys(spousesOf).forEach(headId => {
+    const head = personMap[headId];
+    if (!head || head.isWife) return;
+    if (attachUnder[headId]) return; // already has parents of his own
+    const wifeId = (spousesOf[headId] || []).find(w => {
+      const wife = personMap[w];
+      return wife && (motherOf[w] || fatherOf[w]);
+    });
+    if (!wifeId) return;
+    const wifeDad = (fatherOf[wifeId] && personMap[fatherOf[wifeId]]) ? fatherOf[wifeId] : null;
+    const wifeMom = (motherOf[wifeId] && personMap[motherOf[wifeId]]) ? motherOf[wifeId] : null;
+    const parentId = wifeDad || wifeMom;
+    if (!parentId || !personMap[parentId]) return;
+    const parent = personMap[parentId];
+    if (parent.isWife) return;
+    attachUnder[headId] = parentId;
+  });
+
   // Wives become child nodes of their key partner (positioned horizontally
   // beside them by the layout pass). Each wife keeps her own children.
   Object.entries(spousesOf).forEach(([headId, partners]) => {
@@ -641,22 +664,6 @@ function buildHierarchy() {
     const parent = personMap[parentId];
     if (!child || !parent || child === parent) return;
     parent.children.push(child);
-  });
-
-  // A married woman whose own parents are known also appears under her birth
-  // family (as a childless copy, so her children are not duplicated): the
-  // original stays beside her husband, and the layout treats the copy as a
-  // normal child of her father/mother branch.
-  Object.keys(primaryOf).forEach(w => {
-    const wife = personMap[w];
-    if (!wife || !wife.isWife) return;
-    const dad = (fatherOf[w] && personMap[fatherOf[w]]) ? fatherOf[w] : null;
-    const mom = (motherOf[w] && personMap[motherOf[w]]) ? motherOf[w] : null;
-    const parentId = dad || mom;
-    if (!parentId || !personMap[parentId]) return;
-    const parent = personMap[parentId];
-    if (parent.isWife) return;
-    parent.children.push(Object.assign({}, wife, { children: [], isWife: false, _parentCopy: true }));
   });
 
   const childIds = new Set(Object.keys(attachUnder));
