@@ -94,6 +94,11 @@ let zoomBehavior = null;
 let searchDebounce = null;
 let schemaReady = false;
 
+// Render-time lookup tables for jumping to a person from the birthday widgets:
+// person_id -> {x, y} tree position, and person_id -> the node-group element.
+let personCoord = {};
+let personNodeEl = {};
+
 // Congestion control: person_ids whose child branch the owner has collapsed.
 // hidden by an expand/collapse toggle badge on the node. Survives rerenders.
 const collapsedClusters = new Set();
@@ -467,6 +472,7 @@ async function loadData() {
   relationships = (data.relationships || []).filter(r => r.relationship_id && r.parent_id && r.child_id && r.rel_type);
   if (loadStatusEl) loadStatusEl.textContent = '';
   renderTree();
+  refreshBirthdayWidgets();
   // Visitor logging: fire-and-forget, done after a successful load so the
   // first-view handshake never makes logging the thing that blanks the tree.
   logVisitorEvent('visit');
@@ -1273,6 +1279,8 @@ function renderTree() {
   const svg = d3.select('#tree-svg');
   addDefs(svg);
   svgGroup = svg.append('g');
+  personCoord = {};
+  personNodeEl = {};
 
   zoomBehavior = d3.zoom()
     .scaleExtent([0.1, 4])
@@ -1402,6 +1410,8 @@ function renderTree() {
   nodeGroups.each(function(d) {
     const data = d.data;
     const g = d3.select(this);
+    personCoord[data.person_id] = { x: d.x, y: d.y };
+    personNodeEl[data.person_id] = this;
 
     const pid1 = data.person_id.replace(/[^a-zA-Z0-9_-]/g, '') + '_' + (attrs.count++);
     const radius = avatarRadiusFor(descCounts[data.person_id] || 0);
@@ -2352,6 +2362,197 @@ function zoomReset() {
     svg.transition().duration(500).call(zoomBehavior.transform, d3.zoomIdentity);
   }
 }
+
+// ============================================================
+// Birthdays
+// ============================================================
+const BDAY_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+// A person has a real birthday only when a month AND a day are on file.
+function birthdayInfo(p) {
+  const m = parseInt(p.birth_month, 10);
+  const d = parseInt(p.birth_day, 10);
+  if (!m || !d || isNaN(m) || isNaN(d) || m < 1 || m > 12 || d < 1 || d > 31) return null;
+  return { key: m * 100 + d, m: m, d: d };
+}
+
+// Whole days from today until the next occurrence of (m, d) in the calendar.
+// Feb 29 naturally rolls to Mar 1, and the result always lands in [0, 364].
+function daysUntilNext(m, d, now) {
+  now = now || new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  let when = new Date(now.getFullYear(), m - 1, d);
+  let diff = Math.round((when - today) / 86400000);
+  if (diff < 0) {
+    when = new Date(now.getFullYear() + 1, m - 1, d);
+    diff = Math.round((when - today) / 86400000);
+  }
+  return diff;
+}
+
+// All people with a birthday, each annotated with its next-occurrence distance.
+function allBirthdays(now) {
+  const out = [];
+  persons.forEach(p => {
+    const info = birthdayInfo(p);
+    if (info) out.push({ p, info, days: daysUntilNext(info.m, info.d, now) });
+  });
+  return out;
+}
+
+// Birthday Roll: same-month/day people folded into one entry, ordered from today
+// around the rolling year (so the list always starts with the imminent dates).
+function birthdayRoll(now) {
+  now = now || new Date();
+  const byKey = new Map();
+  allBirthdays(now).forEach(b => {
+    if (!byKey.has(b.info.key)) byKey.set(b.info.key, { info: b.info, people: [] });
+    byKey.get(b.info.key).people.push(b.p);
+  });
+  return Array.from(byKey.values())
+    .sort((a, b) => daysUntilNext(a.info.m, a.info.d, now) - daysUntilNext(b.info.m, b.info.d, now))
+    .map(g => ({ info: g.info, days: daysUntilNext(g.info.m, g.info.d, now), people: g.people }));
+}
+
+// People whose birthday falls within `within` days from today (inclusive).
+function upcomingBirthdays(within, now) {
+  now = now || new Date();
+  return allBirthdays(now)
+    .filter(b => b.days >= 0 && b.days <= within)
+    .sort((a, b) => a.days - b.days || a.info.key - b.info.key);
+}
+
+function bdayDateLabel(m, d) {
+  return BDAY_MONTHS[m - 1] + ' ' + d;
+}
+
+function bdayRelative(days) {
+  if (days === 0) return 'today';
+  if (days === 1) return 'tomorrow';
+  return 'in ' + days + ' days';
+}
+
+// Clickable person chip (green dot = living, grey = deceased).
+function bdayChipHtml(p) {
+  const dead = isDeceased(p);
+  return '<span class="bday-person' + (dead ? ' deceased' : '') + '" data-pid="' + p.person_id + '">' +
+    '<span class="bday-dot' + (dead ? ' dead' : '') + '"></span>' +
+    escapeHtml(shortName(p)) + '</span>';
+}
+
+// Both birthday surfaces use one delegated click handler on their containers.
+function bdayPersonClick(e) {
+  const chip = e.target.closest && e.target.closest('[data-pid]');
+  if (!chip) return;
+  navigateToPerson(chip.dataset.pid);
+}
+
+// Fly the tree to the person and open their info panel.
+function navigateToPerson(pid) {
+  const p = getPerson(pid);
+  if (!p) return;
+  const c = personCoord[pid];
+  if (c && zoomBehavior) {
+    const container = document.getElementById('tree-container');
+    const w = container.clientWidth || 800;
+    const h = container.clientHeight || 600;
+    const s = Math.min(1.3, Math.max(0.7, w / 1100));
+    d3.select('#tree-svg').transition().duration(600).call(zoomBehavior.transform,
+      d3.zoomIdentity.translate(w / 2 - c.x * s, h / 2 - c.y * s + 40).scale(s));
+  }
+  const el = personNodeEl[pid];
+  if (el) {
+    el.classList.add('pulse-onboarding-target');
+    setTimeout(() => el.classList.remove('pulse-onboarding-target'), 2000);
+  }
+  bdayUpcomingClose();
+  closeModal('bday-roll-modal');
+  onNodeSelected(p, null);
+}
+
+// Fold/unfold a shared-birthday row in the roll (chip list collapses to one).
+function toggleBdayFold(btn) {
+  const row = btn.closest('.bday-roll-row');
+  if (!row) return;
+  const folded = row.classList.toggle('folded');
+  const n = row.querySelectorAll('.bday-person').length - 1;
+  btn.textContent = folded ? 'expand · +' + n : 'fold';
+}
+
+function openBirthdayRoll() {
+  const roll = birthdayRoll();
+  const shared = roll.filter(g => g.people.length > 1).length;
+  const sub = document.getElementById('bday-roll-sub');
+  if (!roll.length) {
+    sub.textContent = 'No birthdays with a month and day recorded yet (year alone is not enough).';
+  } else {
+    sub.textContent = roll.length + ' date' + (roll.length === 1 ? '' : 's') +
+      ' on file, sorted from today' + (shared ? ' · ' + shared + ' shared' : '') +
+      '. Tap a name to jump to that person.';
+  }
+  document.getElementById('bday-roll-list').innerHTML = roll.length
+    ? roll.map(g => {
+        const sharedGrp = g.people.length > 1;
+        const dateLbl = bdayDateLabel(g.info.m, g.info.d) + (g.days === 0 ? ' (today)' : '');
+        return '<div class="bday-roll-row' + (sharedGrp ? ' shared' : '') + '" data-key="' + g.info.key + '">' +
+          '<div class="bday-roll-date">' + escapeHtml(dateLbl) + '</div>' +
+          '<div class="bday-roll-people" onclick="bdayPersonClick(event)">' + g.people.map(bdayChipHtml).join('') + '</div>' +
+          (sharedGrp ? '<button class="bday-fold-btn" onclick="toggleBdayFold(this)">fold</button>' : '') +
+          '</div>';
+      }).join('')
+    : '<div class="bday-roll-empty">Once month and day are recorded for a person (Research tab), they appear here — people sharing a birthday are folded into one date row with everyone visible.</div>';
+  openModal('bday-roll-modal');
+}
+
+// ---- Upcoming-birthdays dropdown (top-left) ----
+let bdayUpcomingOpen = false;
+
+function toggleBdayUpcoming() {
+  bdayUpcomingOpen = !bdayUpcomingOpen;
+  const list = document.getElementById('bday-upcoming-list');
+  if (list) list.classList.toggle('active', bdayUpcomingOpen);
+}
+
+function bdayUpcomingClose() {
+  bdayUpcomingOpen = false;
+  const list = document.getElementById('bday-upcoming-list');
+  if (list) list.classList.remove('active');
+}
+
+function bdayUpItemClick(e) {
+  const item = e.target.closest && e.target.closest('[data-pid]');
+  if (!item) return;
+  navigateToPerson(item.dataset.pid);
+}
+
+function refreshBirthdayWidgets() {
+  const wrap = document.getElementById('bday-upcoming');
+  const btn = document.getElementById('bday-upcoming-btn');
+  const countEl = document.getElementById('bday-upcoming-count');
+  const list = document.getElementById('bday-upcoming-list');
+  if (!wrap || !countEl || !list) return;
+  const up = upcomingBirthdays(7);
+  if (!up.length) {
+    wrap.classList.add('hidden');
+    bdayUpcomingClose();
+    return;
+  }
+  wrap.classList.remove('hidden');
+  countEl.textContent = up.length === 1 ? '1 birthday this week' : up.length + ' birthdays this week';
+  list.innerHTML = up.map(b =>
+    '<div class="bday-up-item" data-pid="' + b.p.person_id + '" onclick="bdayUpItemClick(event)">' +
+      '<span class="bday-up-date">' + escapeHtml(bdayDateLabel(b.info.m, b.info.d)) + '</span>' +
+      '<span class="bday-up-name">' + escapeHtml(shortName(b.p)) + '</span>' +
+      '<span class="bday-up-when">' + bdayRelative(b.days) + '</span>' +
+    '</div>').join('');
+  // Open the dropdown once when it first appears, so coming birthdays stay in sight.
+  if (!bdayUpcomingOpen) toggleBdayUpcoming();
+}
+
+document.addEventListener('click', function (e) {
+  const wrap = document.getElementById('bday-upcoming');
+  if (wrap && !wrap.contains(e.target)) bdayUpcomingClose();
+});
 
 function readFileAsDataURL(file) {
   return new Promise((resolve, reject) => {

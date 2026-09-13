@@ -24,6 +24,13 @@
   <button class="btn btn-ghost" id="visits-btn" onclick="openVisitsModal()" style="display:none">&#128065; Visits</button>
   <button class="btn btn-ghost" id="admin-btn" onclick="toggleAdminUnlock()">&#128274; Admin</button>
   <button class="btn btn-ghost" onclick="zoomReset()">Reset View</button>
+  <button class="btn btn-ghost" id="bday-btn" onclick="openBirthdayRoll()">&#127874; Birthdays</button>
+</div>
+
+<!-- Upcoming birthdays dropdown (top-left of the tree) -->
+<div id="bday-upcoming">
+  <button class="bday-up-btn" id="bday-upcoming-btn" onclick="toggleBdayUpcoming()">&#127874; <span id="bday-upcoming-count"></span></button>
+  <div id="bday-upcoming-list"></div>
 </div>
 
 <div id="tree-container">
@@ -75,6 +82,19 @@
     </table>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeModal('visits-modal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Birthday Roll modal: every recorded birthday, grouped by date so people
+     who share a birthday fold into one visible group -->
+<div class="modal-overlay" id="bday-roll-modal" onclick="if(event.target===this)closeModal('bday-roll-modal')">
+  <div class="modal" style="max-width:540px;max-height:82vh;overflow-y:auto">
+    <h2>&#127874; Birthday Roll</h2>
+    <div class="subtitle" id="bday-roll-sub"></div>
+    <div id="bday-roll-list"></div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('bday-roll-modal')">Close</button>
     </div>
   </div>
 </div>

@@ -428,3 +428,60 @@ body.drag-linking .node-group { cursor: grabbing; }
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--surface2); border-radius: 3px; }
+
+/* ---- Birthdays ---- */
+#bday-upcoming {
+  position: fixed; top: 66px; left: 12px; z-index: 150;
+  filter: drop-shadow(0 4px 12px rgba(0,0,0,0.4));
+}
+#bday-upcoming.hidden { display: none; }
+.bday-up-btn {
+  background: var(--surface); color: var(--accent);
+  border: 1px solid var(--surface2); border-radius: 20px;
+  padding: 7px 14px; font-size: 12px; font-weight: 600; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px;
+  transition: border-color 0.2s, background 0.2s;
+}
+.bday-up-btn:hover { border-color: var(--accent); background: rgba(56,189,248,0.08); }
+#bday-upcoming-list {
+  display: none; margin-top: 6px; min-width: 272px; max-width: 340px;
+  background: var(--surface); border: 1px solid var(--surface2); border-radius: 12px;
+  padding: 6px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+}
+#bday-upcoming-list.active { display: block; }
+.bday-up-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px; border-radius: 8px; cursor: pointer; font-size: 12px;
+  transition: background 0.15s;
+}
+.bday-up-item:hover { background: var(--surface2); }
+.bday-up-date { color: var(--accent); font-weight: 700; min-width: 52px; font-size: 11px; }
+.bday-up-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bday-up-when { color: var(--text-dim); font-size: 11px; white-space: nowrap; }
+
+#bday-roll-list { margin-top: 12px; display: grid; gap: 6px; }
+.bday-roll-row {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--surface); border: 1px solid var(--surface2); border-radius: 10px;
+  padding: 8px 12px;
+}
+.bday-roll-date { color: var(--accent); font-weight: 700; font-size: 12px; min-width: 74px; }
+.bday-roll-people { display: flex; flex-wrap: wrap; gap: 6px; flex: 1; }
+.bday-person {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: rgba(56,189,248,0.10); border: 1px solid var(--surface2);
+  border-radius: 14px; padding: 3px 10px; font-size: 12px; cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.bday-person:hover { border-color: var(--accent); background: rgba(56,189,248,0.18); }
+.bday-person.deceased { opacity: 0.7; }
+.bday-dot { width: 7px; height: 7px; border-radius: 50%; background: #22c55e; flex-shrink: 0; }
+.bday-dot.dead { background: #64748b; }
+.bday-fold-btn {
+  background: transparent; border: 1px solid var(--surface2); color: var(--text-dim);
+  border-radius: 6px; font-size: 11px; padding: 3px 8px; cursor: pointer; white-space: nowrap;
+}
+.bday-fold-btn:hover { color: var(--text); border-color: var(--text-dim); }
+.bday-roll-row.folded .bday-person { display: none; }
+.bday-roll-row.folded .bday-person:first-child { display: inline-flex; }
+.bday-roll-empty { color: var(--text-dim); font-size: 13px; line-height: 1.6; padding: 8px 0; }
