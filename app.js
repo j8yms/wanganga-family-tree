@@ -605,6 +605,11 @@ function shortName(p) {
 // ============================================================
 // Build Tree Hierarchy
 // ============================================================
+
+// Head -> wife whose parents he folded under (Direction A folds). The render
+// uses this to point the grandparent link at the wife who carries that branch.
+let activeFoldSpouse = {};
+
 function buildHierarchy() {
   const personMap = {};
   persons.forEach(p => personMap[p.person_id] = Object.assign({}, p, { children: [], isWife: false }));
@@ -639,6 +644,7 @@ function buildHierarchy() {
   //                       half-siblings cluster under their own mother's box.
   //   - Mother only / unknown father's wives: fall back to that parent.
   const attachUnder = {};
+  const foldSpouseOf = {};
   persons.forEach(p => {
     const pid = p.person_id;
     if (personMap[pid].isWife) return;
@@ -652,7 +658,14 @@ function buildHierarchy() {
       attachUnder[pid] = (dadIsMan && (wifeCountOf[dad] || 0) > 1) ? mom : dad;
       return;
     }
-    if (dad) { attachUnder[pid] = dad; return; }
+    if (dad) {
+      const dadMan = !personMap[dad].isWife;
+      const wives = dadMan ? (spousesOf[dad] || []) : [];
+      // A father-only child of a multi-wife man springs from his senior wife, so
+      // every child of a polygynous household stems from a wife (2+-wife rule).
+      attachUnder[pid] = (wives.length > 1) ? wives[0] : dad;
+      return;
+    }
     if (mom) {
       // Child known only through the mother. If she is the SOLE wife of her key
       // husband, the child belongs to the couple and must hang under the man so
@@ -693,7 +706,10 @@ function buildHierarchy() {
     const parent = personMap[parentId];
     if (parent.isWife) return;
     attachUnder[headId] = parentId;
+    foldSpouseOf[headId] = wifeId;
   });
+
+  activeFoldSpouse = foldSpouseOf;
 
   // Direction B: a fatherless woman (no parents of her own) folds under her
   // husband when he holds a parent branch, so her kids anchor to her in-laws'
@@ -827,10 +843,12 @@ function layoutFamilyTree(hierarchyRoot, rowSpace) {
       snap.columns.some(c => c.parent === snap.head);
   }
 
-  // Hub-head positions, all relative to the block start: children columns run
+  // Fan-head positions, all relative to the block start: children columns run
   // from it, wives-with-kids sit over their own child blocks, the man is placed
-  // EXACTLY in the middle of the marriage row (his distance to the leftmost and
-  // rightmost wife is identical), and his kidless wives hug him on either side.
+  // in the MIDDLE of the marriage row (his distance to the leftmost and
+  // rightmost wife is equal), and his kidless wives hug him on the free sides.
+  // With a single wife-that-has-kids the man stands beside her and the kidless
+  // wives chain out on her far side, so he still lands between the wives.
   // Returns null when there is no anchored wife to centre between.
   function hubFan(snap, kidWs) {
     const headW = labelWidth(snap.head.data);
@@ -850,15 +868,49 @@ function layoutFamilyTree(hierarchyRoot, rowSpace) {
       }
     });
     if (!anchored.length) return null;
-    const minX = Math.min.apply(null, anchored.map(a => a.x));
-    const maxX = Math.max.apply(null, anchored.map(a => a.x));
-    const manX = (minX + maxX) / 2;
-    let side = -1;
-    kidless.forEach(k => {
-      k.x = manX + side * (headW / 2 + MAN_WIFE_GAP + k.ww / 2);
-      side = -side;
-    });
+
+    let manX;
+    if (anchored.length >= 2) {
+      const minX = Math.min.apply(null, anchored.map(a => a.x));
+      const maxX = Math.max.apply(null, anchored.map(a => a.x));
+      manX = (minX + maxX) / 2;
+    } else {
+      const maxW = kidless.length ? Math.max.apply(null, kidless.map(k => k.ww)) : 0;
+      manX = anchored[0].x - (headW / 2 + MAN_WIFE_GAP + maxW / 2);
+    }
+
+    if (!kidless.length) return { manX, wives: anchored };
+
+    if (anchored.length >= 2) {
+      // Kidless wives hug the man, alternating sides one step out from his rim.
+      let side = -1;
+      kidless.forEach(k => {
+        k.x = manX + side * (headW / 2 + MAN_WIFE_GAP + k.ww / 2);
+        side = -side;
+      });
+    } else {
+      // The single anchored wife owns the right side; kidless wives chain left.
+      let coach = manX, coachHalf = headW / 2;
+      kidless.forEach(k => {
+        k.x = coach - (coachHalf + MAN_WIFE_GAP + k.ww / 2);
+        coach = k.x;
+        coachHalf = k.ww / 2;
+      });
+    }
     return { manX, wives: anchored.concat(kidless) };
+  }
+
+  // Extent of a fan layout, measured from the block start.
+  function hubBounds(fan, kidWs, headW) {
+    let left = 0;
+    let right = kidWs.reduce((s, w) => s + w, 0) + SIB_GAP * Math.max(0, kidWs.length - 1);
+    left = Math.min(left, fan.manX - headW / 2);
+    right = Math.max(right, fan.manX + headW / 2);
+    fan.wives.forEach(v => {
+      left = Math.min(left, v.x - v.ww / 2);
+      right = Math.max(right, v.x + v.ww / 2);
+    });
+    return { left, right };
   }
 
   // Bottom-up: the exact horizontal span this subtree occupies.
@@ -877,23 +929,18 @@ function layoutFamilyTree(hierarchyRoot, rowSpace) {
       return Math.max(1, right - left);
     }
 
-    // Hub heads: man-centred marriage fan (see hubFan). The man sits exactly in
-    // the middle of his fan; the block is widened to be SYMMETRIC around him
-    // (left edge at the block start) so his father, who centres over this whole
-    // subtree, lands directly above him. Falls back to the content width if the
-    // fan is too wide to stay symmetric.
-    if (HUB_MIDPOINTS.has(snap.head.data.person_id)) {
+    // Fan heads (2+ wives): the man sits in the middle of his wives, kidless wives
+    // hug him, and children stem from each mother. For HUB_MIDPOINTS heads the
+    // block is additionally widened to stay symmetric around him, so his father
+    // lands directly above him.
+    if (snap.wives.length >= 2) {
       const fan = hubFan(snap, kidWs);
       if (fan) {
-        let left = 0, right = kidsSpan;
-        left = Math.min(left, fan.manX - headW / 2);
-        right = Math.max(right, fan.manX + headW / 2);
-        fan.wives.forEach(v => {
-          left = Math.min(left, v.x - v.ww / 2);
-          right = Math.max(right, v.x + v.ww / 2);
-        });
-        const half = Math.max(fan.manX - left, right - fan.manX);
-        return Math.max(1, Math.max(2 * half, right));
+        const b = hubBounds(fan, kidWs, headW);
+        if (HUB_MIDPOINTS.has(snap.head.data.person_id)) {
+          return Math.max(1, Math.max(2 * (fan.manX - b.left), b.right - b.left));
+        }
+        return Math.max(1, b.right - b.left);
       }
     }
 
@@ -939,19 +986,20 @@ function layoutFamilyTree(hierarchyRoot, rowSpace) {
       return;
     }
 
-    // Hub heads: children run from the block start; wives-with-kids sit over
-    // their blocks, the man exactly midway in the fan, kidless wives on his
-    // flanks (see hubFan).
-    if (HUB_MIDPOINTS.has(snap.head.data.person_id)) {
+    // Fan heads (2+ wives): man centred in his wives' row, kidless wives hugging
+    // him, children under their own mothers (see hubFan / hubBounds).
+    if (snap.wives.length >= 2) {
       const fan = hubFan(snap, kidWs);
       if (fan) {
-        let cursor = leftBound;
+        const b = hubBounds(fan, kidWs, headW);
+        const off = -b.left; // slide the fan so its left edge hits the block start
+        let cursor = leftBound + off;
         snap.columns.forEach((c, i) => {
           place(snapshot(c.kid), topY + rowSpace, cursor);
           cursor += kidWs[i] + SIB_GAP;
         });
-        fan.wives.forEach(v => { v.w.x = leftBound + v.x; v.w.y = topY; });
-        snap.head.x = leftBound + fan.manX;
+        fan.wives.forEach(v => { v.w.x = leftBound + off + v.x; v.w.y = topY; });
+        snap.head.x = leftBound + off + fan.manX;
         snap.head.y = topY;
         return;
       }
@@ -1276,6 +1324,15 @@ function renderTree() {
   layoutFamilyTree(hierarchyRoot, rowSpace);
   const nodes = hierarchyRoot.descendants();
 
+  // Folded husbands (Direction A): the man hangs under his WIFE's parents, so
+  // the parent link should point at the wife who actually carries that branch.
+  nodes.forEach(n => {
+    const wId = activeFoldSpouse[n.data.person_id];
+    if (!wId) return;
+    const w = (n.children || []).find(c => c.data.person_id === wId);
+    if (w) n._linkTargetX = w.x;
+  });
+
   // Descendant-driven avatar sizing: count every child/grandchild/… once per
   // person, then give each couple a shared size (will render Radar to match).
   const descCounts = computeCoupleCounts();
@@ -1305,7 +1362,7 @@ function renderTree() {
       const rTgt = avatarRadiusFor(descCounts[d.target.data.person_id] || 0);
       const sx = d.source.x;
       const sy = d.source.y + (d.source.data.person_id === '__virtual__' ? 16 : rSrc + 12);
-      const tx = d.target.x;
+      const tx = (d.target._linkTargetX !== undefined) ? d.target._linkTargetX : d.target.x;
       const ty = d.target.y - (rTgt + 12);
 
       // Marriage bar: wife lifted onto the key partner's row -> straight
