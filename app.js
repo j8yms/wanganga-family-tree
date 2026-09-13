@@ -165,6 +165,85 @@ async function apiPost(payload, tries = 1) {
 }
 
 // ============================================================
+// Safe Relationship Writes
+// ============================================================
+// The anonymous Apps Script endpoint is flaky: a write can return a 404 / HTML
+// / network error yet STILL have executed server-side. Blindly retrying such a
+// write creates a duplicate relationship row. These helpers therefore follow a
+// "verify, then retry" discipline:
+//   1. Skip the write entirely when the relationship already exists (dedupe).
+//   2. If a write "fails", re-check the server: if it landed, treat as success.
+//   3. Only retry a genuinely missing write (retry cannot duplicate).
+function relationshipExists(parentId, childId, relType) {
+  return relationships.some(r =>
+    String(r.parent_id) === String(parentId) &&
+    String(r.child_id) === String(childId) &&
+    String(r.rel_type) === String(relType));
+}
+
+async function createRelationshipSafe(parentId, childId, relType) {
+  const payload = { action: 'createRelationship', parent_id: parentId, child_id: childId, rel_type: relType, created_by: currentUserToken };
+  if (relationshipExists(parentId, childId, relType)) return { success: true, skipped: true };
+
+  let res = null;
+  try { res = await apiPost(payload, 1); } catch (e) { res = null; }
+  if (res && res.success) return { success: true };
+
+  // The write "failed", but it may have executed. Re-sync from the server and
+  // look for the row before deciding to retry.
+  try {
+    const fresh = await apiGet('getAll', {}, 3);
+    if (fresh && fresh.success) {
+      relationships = (fresh.relationships || []).filter(r => r.relationship_id && r.parent_id && r.child_id && r.rel_type);
+      if (relationshipExists(parentId, childId, relType)) return { success: true, landed: true };
+    }
+  } catch (e) { /* keep going to a single retry */ }
+
+  // Not present anywhere: a plain request failure. Safe to retry once.
+  try {
+    res = await apiPost(payload, 1);
+  } catch (e) {
+    res = null;
+  }
+  return (res && res.success)
+    ? { success: true }
+    : { success: false, error: (res && res.error) || 'Link failed (network).' };
+}
+
+async function deleteRelationshipSafe(relId) {
+  const payload = { action: 'deleteRelationship', relationship_id: relId };
+  let res = null;
+  try { res = await apiPost(payload, 1); } catch (e) { res = null; }
+  if (res && res.success) return { success: true };
+  // 404 / "not found" either way means it is gone already — that is success for
+  // a delete. Re-check the server to tell an executed delete from a real error.
+  try {
+    const fresh = await apiGet('getAll', {}, 3);
+    if (fresh && fresh.success) {
+      relationships = (fresh.relationships || []).filter(r => r.relationship_id && r.parent_id && r.child_id && r.rel_type);
+      if (!relationships.some(r => String(r.relationship_id) === String(relId))) return { success: true, gone: true };
+    }
+  } catch (e) { /* fall through */ }
+  return { success: false, error: (res && res.error) || 'Delete failed (network).' };
+}
+
+async function deletePersonSafe(personId) {
+  const payload = { action: 'deletePerson', person_id: personId };
+  let res = null;
+  try { res = await apiPost(payload, 1); } catch (e) { res = null; }
+  if (res && res.success) return { success: true };
+  try {
+    const fresh = await apiGet('getAll', {}, 3);
+    if (fresh && fresh.success) {
+      persons = (fresh.persons || []).filter(p => p.person_id && (p.gikuyu_name || p.fathers_name));
+      relationships = (fresh.relationships || []).filter(r => r.relationship_id && r.parent_id && r.child_id && r.rel_type);
+      if (!persons.some(p => String(p.person_id) === String(personId))) return { success: true, gone: true };
+    }
+  } catch (e) { /* fall through */ }
+  return { success: false, error: (res && res.error) || 'Delete failed (network).' };
+}
+
+// ============================================================
 // Data Loading
 // ============================================================
 async function loadData() {
@@ -1571,20 +1650,14 @@ async function reconcileParentLink(person, relType, wantId) {
   const currentId = current ? current.parent_id : '';
   if (currentId === wantId) return;
   if (current) {
-    const del = await apiPost({ action: 'deleteRelationship', relationship_id: current.relationship_id });
+    const del = await deleteRelationshipSafe(current.relationship_id);
     if (!del.success) {
       showToast('Could not remove old ' + relType + ': ' + (del.error || ''));
       return;
     }
   }
   if (wantId) {
-    await apiPost({
-      action: 'createRelationship',
-      parent_id: wantId,
-      child_id: person.person_id,
-      rel_type: relType,
-      created_by: currentUserToken
-    });
+    await createRelationshipSafe(wantId, person.person_id, relType);
   }
 }
 
@@ -2273,13 +2346,7 @@ async function savePerson() {
         let linked = true;
         if (linkParentId && linkType === 'parent') {
           const relation = document.getElementById('pf-relation').value;
-          const lres = await apiPost({
-            action: 'createRelationship',
-            parent_id: newId,
-            child_id: linkParentId,
-            rel_type: relation === 'mother' ? 'Mother-Child' : 'Father-Child',
-            created_by: currentUserToken
-          });
+          const lres = await createRelationshipSafe(newId, linkParentId, relation === 'mother' ? 'Mother-Child' : 'Father-Child');
           linked = lres.success;
         } else if (linkParentId && linkType === 'child') {
           // Link new child to parent AND all parent's spouses. Every relationship
@@ -2290,19 +2357,8 @@ async function savePerson() {
           for (const parentId of parentsToLink) {
             const parent = getPerson(parentId);
             const relType = parent && parent.gender === 'Female' ? 'Mother-Child' : 'Father-Child';
-            try {
-              const lres = await apiPost({
-                action: 'createRelationship',
-                parent_id: parentId,
-                child_id: newId,
-                rel_type: relType,
-                created_by: currentUserToken
-              }, 2);
-              if (!lres || !lres.success) linked = false;
-            } catch (e) {
-              linked = false;
-              console.warn('Link child -> parent ' + parentId + ' failed:', e);
-            }
+            const lres = await createRelationshipSafe(parentId, newId, relType);
+            if (!lres.success) linked = false;
           }
         } else if (linkParentId && linkType === 'sibling') {
           // Re-link the new person to every parent of the selected sibling, using
@@ -2311,13 +2367,7 @@ async function savePerson() {
             r.child_id === linkParentId && /father|mother/i.test(r.rel_type || ''));
           linked = true;
           for (const pr of siblingParents) {
-            const lres = await apiPost({
-              action: 'createRelationship',
-              parent_id: pr.parent_id,
-              child_id: newId,
-              rel_type: pr.rel_type,
-              created_by: currentUserToken
-            });
+            const lres = await createRelationshipSafe(pr.parent_id, newId, pr.rel_type);
             if (!lres.success) linked = false;
           }
         } else if (linkParentId && linkType === 'spouse') {
@@ -2325,26 +2375,15 @@ async function savePerson() {
           // person who owns a real tree-node cluster, or they become a root and
           // jump to the very top of the tree.
           const anchor = resolvePrimaryAnchor(linkParentId);
-          const lres = await apiPost({
-            action: 'createRelationship',
-            parent_id: anchor,
-            child_id: newId,
-            rel_type: 'Spouse',
-            created_by: currentUserToken
-          });
+          const lres = await createRelationshipSafe(anchor, newId, 'Spouse');
           linked = lres.success;
         }
 
         if (!linked) {
           // Roll back so an unlinked person never appears as an orphaned root.
           // Guard the rollback too: if it also throws, at least tell the user.
-          let rolledBack = false;
-          try {
-            const dr = await apiPost({ action: 'deletePerson', person_id: newId }, 2);
-            rolledBack = !!(dr && dr.success);
-          } catch (e) {
-            console.warn('Rollback deletePerson failed:', e);
-          }
+          const dr = await deletePersonSafe(newId);
+          const rolledBack = dr.success;
           showToast(rolledBack
             ? 'Person added, but linking to the tree failed and was reverted.'
             : 'Could not link the new person to ' + fullName(getPerson(linkParentId)) + '. Reload the page, then link them from the Research tab.');
@@ -2366,7 +2405,7 @@ async function savePerson() {
 // ============================================================
 function openDeleteModal(node) {
   document.getElementById('delete-confirm-btn').onclick = async () => {
-    const res = await apiPost({ action: 'deletePerson', person_id: node.person_id, user_token: currentUserToken });
+    const res = await deletePersonSafe(node.person_id);
     showToast(res.success ? 'Person deleted' : 'Error: ' + (res.error || ''));
     closeModal('delete-modal');
     await loadData();
@@ -2446,13 +2485,7 @@ async function confirmLink(otherId) {
   if (linkDir === 'father' || linkDir === 'mother') {
     // Link node as child of other (other is parent)
     const relType = linkDir === 'mother' ? 'Mother-Child' : 'Father-Child';
-    const res = await apiPost({
-      action: 'createRelationship',
-      parent_id: other.person_id,
-      child_id: node.person_id,
-      rel_type: relType,
-      created_by: currentUserToken
-    });
+    const res = await createRelationshipSafe(other.person_id, node.person_id, relType);
     // Also link to other's spouses (so child has both parents)
     if (res.success) {
       const spouses = getAllSpouses(other.person_id);
@@ -2460,13 +2493,7 @@ async function confirmLink(otherId) {
         const spouse = getPerson(spouseId);
         if (spouse) {
           const spouseRelType = spouse.gender === 'Female' ? 'Mother-Child' : 'Father-Child';
-          await apiPost({
-            action: 'createRelationship',
-            parent_id: spouseId,
-            child_id: node.person_id,
-            rel_type: spouseRelType,
-            created_by: currentUserToken
-          });
+          await createRelationshipSafe(spouseId, node.person_id, spouseRelType);
         }
       }
     }
@@ -2479,24 +2506,12 @@ async function confirmLink(otherId) {
     for (const parentId of parentsToLink) {
       const parent = getPerson(parentId);
       const relType = parent && parent.gender === 'Female' ? 'Mother-Child' : 'Father-Child';
-      const res = await apiPost({
-        action: 'createRelationship',
-        parent_id: parentId,
-        child_id: other.person_id,
-        rel_type: relType,
-        created_by: currentUserToken
-      });
+      const res = await createRelationshipSafe(parentId, other.person_id, relType);
       if (!res.success) allSuccess = false;
     }
     showToast(allSuccess ? 'Child linked to all parents' : 'Some links failed');
   } else {
-    const res = await apiPost({
-      action: 'createRelationship',
-      parent_id: node.person_id,
-      child_id: other.person_id,
-      rel_type: 'Spouse',
-      created_by: currentUserToken
-    });
+    const res = await createRelationshipSafe(node.person_id, other.person_id, 'Spouse');
     showToast(res.success ? 'Spouse link created' : 'Error: ' + (res.error || ''));
   }
   await loadData();
@@ -2543,7 +2558,7 @@ function openUnlinkModal(node) {
 
 async function confirmUnlink(relId) {
   closeModal('onboard-modal');
-  const res = await apiPost({ action: 'deleteRelationship', relationship_id: relId, user_token: currentUserToken });
+  const res = await deleteRelationshipSafe(relId);
   showToast(res.success ? 'Relationship removed' : 'Error: ' + (res.error || ''));
   await loadData();
 }
@@ -2587,35 +2602,17 @@ async function createDragLink(kind, source, target) {
     const parentId = male ? source.person_id : target.person_id;
     const childId = male ? target.person_id : source.person_id;
     const anchor = resolvePrimaryAnchor(parentId);
-    return apiPost({
-      action: 'createRelationship',
-      parent_id: anchor,
-      child_id: childId,
-      rel_type: 'Spouse',
-      created_by: currentUserToken
-    });
+    return createRelationshipSafe(anchor, childId, 'Spouse');
   }
   if (kind === 'child') {
     const relType = (String(target.gender || '').toLowerCase() === 'female' || String(target.gender) === 'F')
       ? 'Mother-Child' : 'Father-Child';
-    return apiPost({
-      action: 'createRelationship',
-      parent_id: target.person_id,
-      child_id: source.person_id,
-      rel_type: relType,
-      created_by: currentUserToken
-    });
+    return createRelationshipSafe(target.person_id, source.person_id, relType);
   }
   // parent
   const relType = (String(source.gender || '').toLowerCase() === 'female' || String(source.gender) === 'F')
     ? 'Mother-Child' : 'Father-Child';
-  return apiPost({
-    action: 'createRelationship',
-    parent_id: source.person_id,
-    child_id: target.person_id,
-    rel_type: relType,
-    created_by: currentUserToken
-  });
+  return createRelationshipSafe(source.person_id, target.person_id, relType);
 }
 
 document.getElementById('drag-link-menu').addEventListener('click', async (e) => {
@@ -2952,10 +2949,7 @@ async function linkUserToRelative(userId, relation, relative) {
       String(r.child_id) === String(childId) &&
       String(r.rel_type) === String(relType))) { done.add(key); return; }
     done.add(key);
-    const res = await apiPost({
-      action: 'createRelationship', parent_id: parentId, child_id: childId,
-      rel_type: relType, created_by: currentUserToken
-    });
+    const res = await createRelationshipSafe(parentId, childId, relType);
     if (res && res.success) ok++; else failed++;
   };
 
@@ -3030,10 +3024,7 @@ async function linkNewProfileToFamily(newId) {
   const createLink = async (parentId, relType) => {
     if (!parentId || parentId === newId) return;
     if (exists(parentId, newId, relType)) return;
-    const res = await apiPost({
-      action: 'createRelationship', parent_id: parentId, child_id: newId,
-      rel_type: relType, created_by: currentUserToken
-    });
+    const res = await createRelationshipSafe(parentId, newId, relType);
     if (res && res.success) done.add(parentId + '|' + newId + '|' + relType);
   };
 
