@@ -1,0 +1,17 @@
+{
+  "name": "wanganga-family-tree",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Digital family tree for the Wang'ang'a family - Google Apps Script backend, D3.js frontend",
+  "scripts": {
+    "seed:persons": "node scripts/seed_persons.js",
+    "seed:relationships": "node scripts/seed_relationships.js",
+    "seed:spouses": "node scripts/seed_spouses.js",
+    "seed:all": "npm run seed:persons && npm run seed:relationships && npm run seed:spouses",
+    "dedupe": "node scripts/dedupe.js",
+    "seed:persons:win": "powershell -ExecutionPolicy Bypass -File scripts/seed_persons.ps1"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
