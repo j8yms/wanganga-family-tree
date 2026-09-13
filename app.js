@@ -733,6 +733,33 @@ function buildHierarchy() {
     parent.children.push(child);
   });
 
+  // Manual wife-order overrides: for a man whose wives' own layout (column
+  // order = wife entry order) is not the desired left->right order listed
+  // here, re-sort his wife children without touching his own kids.
+  const WIFE_ORDER = {
+    // Wang'ang'a wa Kĩnyanjui: Karira (7 kids) far left, Warĩnga & Wanjũhĩ
+    // (kidless) in the middle, Wanjirũ (3 kids) far right.
+    '7fc20e59-737f-41e3-8dd5-c4550a676041': [
+      '0d27fe93-d133-4554-a0a3-44702d08022d', // Karira wa Gĩcũrũ
+      'c4a620d3-344f-411c-b62c-82f39cb7725f', // Warĩnga wa Nyũmba
+      'f2aecb60-d3cb-443f-b862-b261626f99fb', // Wanjũhĩ wa Njamba
+      '8cfbb7a2-da77-413a-9c27-c06daef1a66c', // Wanjirũ wa Gĩthiaka
+    ],
+  };
+  Object.keys(WIFE_ORDER).forEach(headId => {
+    const head = personMap[headId];
+    if (!head) return;
+    const order = WIFE_ORDER[headId];
+    const rank = {};
+    order.forEach((id, i) => rank[id] = i);
+    head.children.sort((a, b) => {
+      const ra = rank[a.person_id];
+      const rb = rank[b.person_id];
+      if (ra !== undefined && rb !== undefined) return ra - rb;
+      return 0;
+    });
+  });
+
   const childIds = new Set(Object.keys(attachUnder));
 
   const roots = persons
@@ -821,6 +848,7 @@ function layoutFamilyTree(hierarchyRoot, rowSpace) {
       if (c.parent === snap.head) ownBlock += kidWs[i] + (ownBlock ? SIB_GAP : 0);
     });
     if (ownBlock) manCenter = ownBlock / 2;
+    else if (kidWs.length) manCenter = kidsSpan / 2;   // man with no own kids: centre over his wives' fan
     return Math.max(kidsSpan, manCenter + wRow);
   }
   const rootSnap = snapshot(hierarchyRoot);
@@ -860,13 +888,19 @@ function layoutFamilyTree(hierarchyRoot, rowSpace) {
       cursor += kidWs[i] + SIB_GAP;
     });
 
-    // The man centres over his own direct children (or floats left).
+    // The man centres over his own direct children, or over his wives' whole
+    // fan when all his children hang under their mothers (typical polygynous
+    // household with no motherless children).
     let manCenter = 0;
     let ownBlock = 0;
     snap.columns.forEach((c, i) => {
       if (c.parent === snap.head) ownBlock += kidWs[i] + (ownBlock ? SIB_GAP : 0);
     });
     if (ownBlock) manCenter = ownBlock / 2;
+    else if (kidWs.length) {
+      const kidsSpan = kidWs.reduce((s, w) => s + w, 0) + SIB_GAP * Math.max(0, kidWs.length - 1);
+      manCenter = kidsSpan / 2;
+    }
     const manX = leftBound + manCenter;
     snap.head.x = manX;
     snap.head.y = topY;
