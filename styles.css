@@ -41,7 +41,13 @@ body {
 .btn-primary:hover { filter: brightness(1.15); }
 .btn-ghost { background: transparent; color: var(--text-dim); border: 1px solid var(--surface2); }
 .btn-ghost:hover { background: var(--surface2); color: var(--text); }
-#undo-btn.undo-available { color: #60a5fa; border-color: #60a5fa; font-weight: 600; }
+#undo-btn.undo-available, #redo-btn.undo-available { color: #60a5fa; border-color: #60a5fa; font-weight: 600; }
+@media (max-width: 640px) {
+  #toolbar { padding: 0 10px; gap: 8px; }
+  #toolbar h1 { font-size: 15px; }
+  #undo-btn, #redo-btn { min-width: 36px; height: 36px; padding: 0 8px; font-size: 12px; }
+  #visits-btn, #admin-btn { height: 36px; padding: 0 10px; }
+}
 .btn-danger { background: var(--danger); color: white; }
 .btn-danger:hover { filter: brightness(1.15); }
 
