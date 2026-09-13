@@ -668,11 +668,15 @@ function buildHierarchy() {
     }
   });
 
-  // A man with no parents of his own folds his WHOLE household (wife + their
-  // children) under his wife's parent branch, so a daughter's family renders
-  // inside her father's umbrella instead of floating as a disconnected tree.
-  // (The wife's own parent link is enough; the husband itself is attached as
-  // the child, so there is no duplicate copy of anyone.)
+  const hasParentLink = id => !!(motherOf[id] || fatherOf[id]);
+
+  // SYMMETRIC FOLD. The fold runs for the WHOLE household (wife + their
+  // children), always anchoring it to whichever partner carries a parent link,
+  // so a family renders inside its grandparent's umbrella instead of floating
+  // as a disconnected tree. (The anchor person's own parent link is enough;
+  // the folded spouse is attached as the child, so no one is duplicated.)
+  //
+  // Direction A: a husband/fatherless man folds under his wife's parent.
   Object.keys(spousesOf).forEach(headId => {
     const head = personMap[headId];
     if (!head || head.isWife) return;
@@ -689,6 +693,23 @@ function buildHierarchy() {
     const parent = personMap[parentId];
     if (parent.isWife) return;
     attachUnder[headId] = parentId;
+  });
+
+  // Direction B: a fatherless woman (no parents of her own) folds under her
+  // husband when he holds a parent branch, so her kids anchor to her in-laws'
+  // umbrella. (The wife already renders beside her husband; the explicit
+  // attach keeps the rule symmetric for any future parentless bride.)
+  Object.keys(primaryOf).forEach(wifeId => {
+    const wife = personMap[wifeId];
+    if (!wife || !wife.isWife) return;
+    if (attachUnder[wifeId]) return;
+    if (hasParentLink(wifeId)) return; // has parents of her own
+    const husId = primaryOf[wifeId];
+    if (husId === wifeId) return;
+    const hus = personMap[husId];
+    if (!hus || hus.isWife) return;
+    if (!(attachUnder[husId] || hasParentLink(husId))) return; // husband has no branch either
+    attachUnder[wifeId] = husId;
   });
 
   // Wives become child nodes of their key partner (positioned horizontally
