@@ -190,11 +190,15 @@ async function createRelationshipSafe(parentId, childId, relType) {
     if (isFemaleGender(ga) && isMaleGender(gb)) { const t = parentId; parentId = childId; childId = t; }
   }
   const payload = { action: 'createRelationship', parent_id: parentId, child_id: childId, rel_type: relType, created_by: currentUserToken };
-  if (relationshipExists(parentId, childId, relType)) return { success: true, skipped: true };
+  const existing = relationships.find(r =>
+    String(r.parent_id) === String(parentId) &&
+    String(r.child_id) === String(childId) &&
+    String(r.rel_type) === String(relType));
+  if (existing) return { success: true, skipped: true, relationship_id: existing.relationship_id };
 
   let res = null;
   try { res = await apiPost(payload, 1); } catch (e) { res = null; }
-  if (res && res.success) return { success: true };
+  if (res && res.success) return { success: true, relationship_id: res.relationship_id };
 
   // The write "failed", but it may have executed. Re-sync from the server and
   // look for the row before deciding to retry.
@@ -202,7 +206,11 @@ async function createRelationshipSafe(parentId, childId, relType) {
     const fresh = await apiGet('getAll', {}, 3);
     if (fresh && fresh.success) {
       relationships = (fresh.relationships || []).filter(r => r.relationship_id && r.parent_id && r.child_id && r.rel_type);
-      if (relationshipExists(parentId, childId, relType)) return { success: true, landed: true };
+      const landed = relationships.find(r =>
+        String(r.parent_id) === String(parentId) &&
+        String(r.child_id) === String(childId) &&
+        String(r.rel_type) === String(relType));
+      if (landed) return { success: true, landed: true, relationship_id: landed.relationship_id };
     }
   } catch (e) { /* keep going to a single retry */ }
 
@@ -213,7 +221,7 @@ async function createRelationshipSafe(parentId, childId, relType) {
     res = null;
   }
   return (res && res.success)
-    ? { success: true }
+    ? { success: true, relationship_id: res.relationship_id }
     : { success: false, error: (res && res.error) || 'Link failed (network).' };
 }
 
@@ -248,6 +256,124 @@ async function deletePersonSafe(personId) {
     }
   } catch (e) { /* fall through */ }
   return { success: false, error: (res && res.error) || 'Delete failed (network).' };
+}
+
+// ============================================================
+// Undo (last operation, repeatable)
+// ============================================================
+// A small stack of undo closures. Every write path pushes an entry immediately
+// BEFORE the mutation so the reverse can always run against fresh server state.
+let undoStack = [];
+const UNDO_LIMIT = 20;
+
+function pushUndo(label, undoFn) {
+  undoStack.push({ label: label, undo: undoFn });
+  if (undoStack.length > UNDO_LIMIT) undoStack.shift();
+  renderUndoBtn();
+}
+
+function renderUndoBtn() {
+  const btn = document.getElementById('undo-btn');
+  if (!btn) return;
+  const top = undoStack[undoStack.length - 1];
+  if (top) {
+    btn.style.display = '';
+    btn.classList.add('undo-available');
+    btn.textContent = '↩ ' + top.label;
+    btn.title = 'Undo the most recent change (' + top.label + ')';
+  } else {
+    btn.style.display = 'none';
+    btn.classList.remove('undo-available');
+  }
+}
+
+async function performUndo() {
+  const entry = undoStack.pop();
+  renderUndoBtn();
+  if (!entry) { showToast('Nothing to undo'); return; }
+  showToast('Undoing: ' + entry.label + '…');
+  try {
+    await entry.undo();
+    showToast('Undone: ' + entry.label);
+  } catch (e) {
+    showToast('Undo failed: ' + (e && e.message ? e.message : 'Unknown error'));
+  }
+  await loadData();
+}
+
+// All editable person fields, used to restore a record after an edit is undone.
+function personUpdatePayload(person) {
+  const p = person || {};
+  return {
+    gikuyu_name: p.gikuyu_name || '',
+    fathers_name: p.fathers_name || '',
+    other_names: p.other_names || '',
+    gender: p.gender || 'Male',
+    is_living: (p.is_living === undefined || p.is_living === '' || p.is_living === null) ? true : p.is_living,
+    birth_year: p.birth_year || '',
+    death_year: p.death_year || '',
+    place_of_birth: p.place_of_birth || '',
+    place_of_living: p.place_of_living || '',
+    place_of_death: p.place_of_death || '',
+    birth_qualifier: p.birth_qualifier || 'exact',
+    birth_month: p.birth_month || '',
+    birth_day: p.birth_day || '',
+    death_qualifier: p.death_qualifier || 'exact',
+    death_month: p.death_month || '',
+    death_day: p.death_day || ''
+  };
+}
+
+// ============================================================
+// Change Photo (avatar header + Actions tab)
+// ============================================================
+let photoChangeTarget = null;
+let photoChangePending = false;
+
+function changePhotoFromAvatar() {
+  if (!dashboardPerson) return;
+  photoChangeTarget = dashboardPerson;
+  const input = document.getElementById('avatar-photo-input');
+  if (input) {
+    input.value = '';
+    photoChangePending = true;
+    input.click();
+  }
+}
+
+function handleAvatarPhotoSelect(input) {
+  if (input.files && input.files[0] && /^image\//i.test(input.files[0].type)) {
+    handlePhotoSelect(input, 'avatar-photo-preview');
+  } else {
+    photoChangePending = false;
+    input.value = '';
+  }
+}
+
+async function commitAvatarPhoto(input) {
+  const person = photoChangeTarget || dashboardPerson;
+  photoChangeTarget = null;
+  photoChangePending = false;
+  if (!person || !input || !input.dataset.croppedDataUrl) return;
+  const prevUrl = person.photo_url || '';
+  const base64 = input.dataset.croppedDataUrl;
+  const mime = input.dataset.croppedMime || 'image/jpeg';
+  showToast('Saving photo…');
+  const res = await apiPost(Object.assign({ action: 'updatePerson', person_id: person.person_id, base64Image: base64, mimeType: mime }));
+  showToast(res && res.success ? 'Photo updated' : 'Error: ' + ((res && res.error) || ''));
+  if (res && res.success) {
+    const pid = person.person_id;
+    const name = shortName(person) || 'person';
+    pushUndo('Change photo: ' + name, async () => {
+      const restore = Object.assign({ action: 'updatePerson', person_id: pid }, prevUrl ? { photo_url: prevUrl } : { photo_url: '' });
+      const r = await apiPost(restore);
+      if (!r || !r.success) throw new Error((r && r.error) || 'Could not restore photo');
+    });
+  }
+  await loadData();
+  const fresh = persons.find(p => p.person_id === person.person_id) || person;
+  dashboardPerson = fresh;
+  renderInfoDashboard(fresh);
 }
 
 // ============================================================
@@ -1278,6 +1404,12 @@ function setupActionButtons(person) {
   if (sib) sib.style.display = hasLinkedParents(person) ? '' : 'none';
   const del = document.getElementById('act-delete');
   if (del) del.style.display = canManageRecord(person) ? '' : 'none';
+  // Change Photo (Actions tab + avatar overlay) only for records the acting
+  // user may edit; the backend ownership check would reject anyone else anyway.
+  const cp = document.getElementById('act-change-photo');
+  if (cp) cp.style.display = canManageRecord(person) ? '' : 'none';
+  const cam = document.getElementById('avatar-change-btn');
+  if (cam) cam.style.display = canManageRecord(person) && !isViewOnly ? '' : 'none';
 }
 
 function hasLinkedParents(person) {
@@ -1650,6 +1782,13 @@ async function saveInfoResearch() {
   if (saveBtn) saveBtn.disabled = true;
   showToast('Saving…');
   try {
+    // Undo snapshot: previous person fields + the parent links we are about to
+    // reconcile, so an "undo" restores both the text and the tree connections.
+    const pid = person.person_id;
+    const prevSnap = Object.assign({}, person);
+    const prevFatherLink = currentLinkedParentId(pid, 'Father-Child');
+    const prevMotherLink = currentLinkedParentId(pid, 'Mother-Child');
+
     // Reconcile linked parents against the two selects (add/remove/change).
     await reconcileParentLink(person, 'Father-Child', document.getElementById('ir-father-link').value);
     await reconcileParentLink(person, 'Mother-Child', document.getElementById('ir-mother-link').value);
@@ -1660,6 +1799,17 @@ async function saveInfoResearch() {
       return;
     }
 
+    const undoLabel = 'Edit: ' + (shortName(prevSnap) || 'profile');
+    pushUndo(undoLabel, async () => {
+      const restore = Object.assign({ action: 'updatePerson', person_id: pid }, personUpdatePayload(prevSnap));
+      restore.photo_url = prevSnap.photo_url || '';
+      const r = await apiPost(restore);
+      if (!r || !r.success) throw new Error((r && r.error) || 'Could not restore profile');
+      const freshPerson = getPerson(pid) || prevSnap;
+      await reconcileParentLink(freshPerson, 'Father-Child', prevFatherLink);
+      await reconcileParentLink(freshPerson, 'Mother-Child', prevMotherLink);
+    });
+
     showToast('Profile updated');
     await loadData();
     const fresh = persons.find(p => p.person_id === person.person_id) || person;
@@ -1669,6 +1819,13 @@ async function saveInfoResearch() {
   } finally {
     if (saveBtn) saveBtn.disabled = false;
   }
+}
+
+// Current parent_id of a child's link of the given type ('' when unlinked).
+function currentLinkedParentId(childId, relType) {
+  const r = relationships.find(x =>
+    String(x.child_id) === String(childId) && String(x.rel_type) === String(relType));
+  return r ? r.parent_id : '';
 }
 
 // Point a person's Father-Child / Mother-Child link at a new parent ('' = none).
@@ -2046,6 +2203,8 @@ function syncZoomSlider() {
 }
 
 function cropCancel() {
+  photoChangePending = false;
+  photoChangeTarget = null;
   const preview = document.getElementById(cropState.previewId);
   if (preview) {
     preview.src = cropState.prevSrc || '';
@@ -2082,7 +2241,15 @@ function cropApply() {
     preview.src = dataUrl;
     preview.classList.add('has-photo');
   }
+  const appliedInput = cropState.input;
+  const applyAvatar = photoChangePending;
   closeCrop();
+  // The avatar / Actions-tab Change Photo flow commits immediately after the
+  // crop instead of waiting for a form save.
+  if (applyAvatar && appliedInput && appliedInput.dataset.croppedDataUrl) {
+    photoChangePending = false;
+    commitAvatarPhoto(appliedInput);
+  }
 }
 
 function closeCrop() {
@@ -2368,8 +2535,20 @@ async function savePerson() {
 
     if (id) {
       data.person_id = id;
+      const prevRec = persons.find(p => String(p.person_id) === String(id)) || {};
+      const prevSnap = Object.assign({}, prevRec);
       const res = await apiPost(Object.assign({ action: 'updatePerson' }, data));
       showToast(res.success ? 'Person updated' : 'Error: ' + (res.error || ''));
+      if (res.success) {
+        const pid = id;
+        const label = 'Edit: ' + (shortName(prevSnap) || 'person');
+        pushUndo(label, async () => {
+          const restore = Object.assign({ action: 'updatePerson', person_id: pid }, personUpdatePayload(prevSnap));
+          restore.photo_url = prevSnap.photo_url || '';
+          const r = await apiPost(restore);
+          if (!r || !r.success) throw new Error((r && r.error) || 'Could not restore person');
+        });
+      }
     } else {
       const res = await apiPost(Object.assign({ action: 'createPerson', created_by: currentUserToken }, data));
       if (res.success) {
@@ -2421,6 +2600,10 @@ async function savePerson() {
           return;
         }
         showToast('Person added');
+        pushUndo('Add: ' + (shortName({ gikuyu_name: gikuyu, fathers_name: fathers }) || 'person'), async () => {
+          const d = await deletePersonSafe(newId);
+          if (!d.success) throw new Error((d && d.error) || 'Could not undo add');
+        });
       } else {
         showToast('Error: ' + (res.error || ''));
       }
@@ -2436,8 +2619,30 @@ async function savePerson() {
 // ============================================================
 function openDeleteModal(node) {
   document.getElementById('delete-confirm-btn').onclick = async () => {
-    const res = await deletePersonSafe(node.person_id);
+    const pid = node.person_id;
+    const deletedSnap = Object.assign({}, node);
+    const relSnap = relationships
+      .filter(r => String(r.parent_id) === String(pid) || String(r.child_id) === String(pid))
+      .map(r => ({ parent_id: r.parent_id, child_id: r.child_id, rel_type: r.rel_type }));
+    const label = 'Delete: ' + (shortName(node) || 'person');
+    const res = await deletePersonSafe(pid);
     showToast(res.success ? 'Person deleted' : 'Error: ' + (res.error || ''));
+    if (res.success) {
+      pushUndo(label, async () => {
+        const restore = Object.assign({ action: 'createPerson', created_by: deletedSnap.created_by || currentUserToken }, personUpdatePayload(deletedSnap));
+        if (deletedSnap.photo_url) restore.photo_url = deletedSnap.photo_url;
+        const c = await apiPost(restore);
+        if (!c || !c.success) throw new Error((c && c.error) || 'Could not restore person');
+        const newId = c.person_id;
+        // Recreate every relationship the deleted person had (children, parents,
+        // spouses) by routing the old id to the fresh restore id.
+        for (const r of relSnap) {
+          const parentId = String(r.parent_id) === String(pid) ? newId : r.parent_id;
+          const childId = String(r.child_id) === String(pid) ? newId : r.child_id;
+          await createRelationshipSafe(parentId, childId, r.rel_type);
+        }
+      });
+    }
     closeModal('delete-modal');
     await loadData();
   };
@@ -2512,11 +2717,14 @@ async function confirmLink(otherId) {
 
   const node = getPerson(linkNodeId);
   const other = getPerson(otherId);
+  const createdIds = [];
+  const label = 'Link: ' + shortName(node) + ' ↔ ' + shortName(other);
 
   if (linkDir === 'father' || linkDir === 'mother') {
     // Link node as child of other (other is parent)
     const relType = linkDir === 'mother' ? 'Mother-Child' : 'Father-Child';
     const res = await createRelationshipSafe(other.person_id, node.person_id, relType);
+    if (res && res.success && res.relationship_id) createdIds.push(res.relationship_id);
     // Also link to other's spouses (so child has both parents)
     if (res.success) {
       const spouses = getAllSpouses(other.person_id);
@@ -2524,7 +2732,8 @@ async function confirmLink(otherId) {
         const spouse = getPerson(spouseId);
         if (spouse) {
           const spouseRelType = spouse.gender === 'Female' ? 'Mother-Child' : 'Father-Child';
-          await createRelationshipSafe(spouseId, node.person_id, spouseRelType);
+          const sres = await createRelationshipSafe(spouseId, node.person_id, spouseRelType);
+          if (sres && sres.success && sres.relationship_id) createdIds.push(sres.relationship_id);
         }
       }
     }
@@ -2538,6 +2747,7 @@ async function confirmLink(otherId) {
       const parent = getPerson(parentId);
       const relType = parent && parent.gender === 'Female' ? 'Mother-Child' : 'Father-Child';
       const res = await createRelationshipSafe(parentId, other.person_id, relType);
+      if (res && res.success && res.relationship_id) createdIds.push(res.relationship_id);
       if (!res.success) allSuccess = false;
     }
     showToast(allSuccess ? 'Child linked to all parents' : 'Some links failed');
@@ -2548,7 +2758,16 @@ async function confirmLink(otherId) {
     const parentId = (isFemaleGender(ga) && isMaleGender(gb)) ? other.person_id : node.person_id;
     const childId = (parentId === node.person_id) ? other.person_id : node.person_id;
     const res = await createRelationshipSafe(parentId, childId, 'Spouse');
+    if (res && res.success && res.relationship_id) createdIds.push(res.relationship_id);
     showToast(res.success ? 'Spouse link created' : 'Error: ' + (res.error || ''));
+  }
+  if (createdIds.length) {
+    pushUndo(label, async () => {
+      for (const rid of createdIds) {
+        const d = await deleteRelationshipSafe(rid);
+        if (!d.success) throw new Error((d && d.error) || 'Could not undo link');
+      }
+    });
   }
   await loadData();
 }
@@ -2594,8 +2813,17 @@ function openUnlinkModal(node) {
 
 async function confirmUnlink(relId) {
   closeModal('onboard-modal');
+  const rel = relationships.find(r => String(r.relationship_id) === String(relId));
   const res = await deleteRelationshipSafe(relId);
   showToast(res.success ? 'Relationship removed' : 'Error: ' + (res.error || ''));
+  if (res.success && rel) {
+    const relSnap = { parent_id: rel.parent_id, child_id: rel.child_id, rel_type: rel.rel_type };
+    const label = 'Unlink (' + String(rel.rel_type || '') + ')';
+    pushUndo(label, async () => {
+      const c = await createRelationshipSafe(relSnap.parent_id, relSnap.child_id, relSnap.rel_type);
+      if (!c.success) throw new Error((c && c.error) || 'Could not undo unlink');
+    });
+  }
   await loadData();
 }
 
@@ -2661,6 +2889,14 @@ document.getElementById('drag-link-menu').addEventListener('click', async (e) =>
   if (!pending) return;
   const res = await createDragLink(kind, pending.source, pending.target);
   showToast(res.success ? 'Link created' : 'Error: ' + (res.error || ''));
+  if (res.success && res.relationship_id) {
+    const rid = res.relationship_id;
+    const label = 'Link: ' + shortName(pending.source) + ' ↔ ' + shortName(pending.target);
+    pushUndo(label, async () => {
+      const d = await deleteRelationshipSafe(rid);
+      if (!d.success) throw new Error((d && d.error) || 'Could not undo link');
+    });
+  }
   await loadData();
 });
 document.addEventListener('click', (e) => {
@@ -2953,6 +3189,16 @@ async function onboardSubmitNew() {
       return;
     }
     userId = res.person_id;
+    // New profile: undo removes the freshly-created person (their links are
+    // removed on the same click if targetRelative is set; a delete cascades
+    // both directions server-side too).
+    if (!obSelectedPerson) {
+      const newPersonLabel = 'Add: ' + (shortName({ gikuyu_name: gikuyu, fathers_name: fathers }) || 'person');
+      pushUndo(newPersonLabel, async () => {
+        const d = await deletePersonSafe(userId);
+        if (!d.success) throw new Error((d && d.error) || 'Could not undo add');
+      });
+    }
   }
 
   if (targetRelative && relation) {

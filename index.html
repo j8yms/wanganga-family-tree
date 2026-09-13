@@ -19,6 +19,7 @@
 <div id="toolbar">
   <h1>&#127793; Wang'ang'a Family Tree</h1>
   <div class="spacer"></div>
+  <button class="btn btn-ghost" id="undo-btn" onclick="performUndo()" style="display:none">↩</button>
   <button class="btn btn-ghost" id="visits-btn" onclick="openVisitsModal()" style="display:none">&#128065; Visits</button>
   <button class="btn btn-ghost" id="admin-btn" onclick="toggleAdminUnlock()">&#128274; Admin</button>
   <button class="btn btn-ghost" onclick="zoomReset()">Reset View</button>
@@ -92,6 +93,10 @@
     </div>
   </div>
 </div>
+
+<!-- Change Photo: hidden picker + invisible preview fed to the shared cropper -->
+<input type="file" id="avatar-photo-input" accept="image/*" style="display:none" onchange="handleAvatarPhotoSelect(this)">
+<img id="avatar-photo-preview" alt="preview" style="display:none">
 
 <!-- Add/Edit Person Modal -->
 <div class="modal-overlay" id="person-modal">
@@ -586,7 +591,10 @@
     <button class="drawer-close" onclick="closeModal('info-modal')" title="Close" aria-label="Close">&times;</button>
 
     <div class="info-header">
-      <div class="info-avatar" id="info-avatar"></div>
+      <div class="avatar-wrap">
+        <div class="info-avatar" id="info-avatar"></div>
+        <button class="avatar-cam-btn" id="avatar-change-btn" title="Change Photo" aria-label="Change Photo" onclick="changePhotoFromAvatar()">📷</button>
+      </div>
       <div>
         <div class="info-title" id="info-name"></div>
         <div class="info-subtitle" id="info-meta"></div>
@@ -606,6 +614,7 @@
         <button class="btn btn-primary action-btn" onclick="actionAddChild()">➕ Add Child</button>
         <button class="btn btn-primary action-btn" id="act-sibling" onclick="actionAddSibling()">➕ Add Sibling</button>
         <button class="btn btn-primary action-btn" onclick="actionAddSpouse()">💍 Add Spouse</button>
+        <button class="btn btn-ghost action-btn" id="act-change-photo" onclick="changePhotoFromAvatar()">📷 Change Photo</button>
         <button class="btn btn-ghost action-btn" onclick="actionEditResearch()">✏️ Edit / Research</button>
         <button class="btn btn-danger action-btn" id="act-delete" onclick="actionDeleteProfile()">🗑️ Delete</button>
       </div>

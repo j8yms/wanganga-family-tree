@@ -41,6 +41,7 @@ body {
 .btn-primary:hover { filter: brightness(1.15); }
 .btn-ghost { background: transparent; color: var(--text-dim); border: 1px solid var(--surface2); }
 .btn-ghost:hover { background: var(--surface2); color: var(--text); }
+#undo-btn.undo-available { color: #60a5fa; border-color: #60a5fa; font-weight: 600; }
 .btn-danger { background: var(--danger); color: white; }
 .btn-danger:hover { filter: brightness(1.15); }
 
@@ -140,6 +141,7 @@ body.drag-linking .node-group { cursor: grabbing; }
 .drawer-close:hover { background: var(--text-dim); color: var(--bg); }
 
 .info-header { display: flex; align-items: center; gap: 16px; margin-bottom: 24px; padding-right: 40px; }
+.avatar-wrap { position: relative; flex-shrink: 0; line-height: 0; }
 .info-avatar {
   width: 64px; height: 64px; border-radius: 50%; overflow: hidden; flex-shrink: 0;
   border: 3px solid var(--surface2); background: var(--surface2);
@@ -147,6 +149,13 @@ body.drag-linking .node-group { cursor: grabbing; }
   font-size: 26px; font-weight: 700; color: var(--bg);
 }
 .info-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.avatar-cam-btn {
+  position: absolute; right: -4px; bottom: -4px; width: 26px; height: 26px;
+  border-radius: 50%; border: 2px solid var(--bg); background: var(--surface2);
+  color: var(--text); font-size: 13px; line-height: 1; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+.avatar-cam-btn:hover { background: #24323d; color: #fff; }
 .info-title { font-size: 20px; font-weight: 700; line-height: 1.25; word-break: break-word; }
 .info-subtitle { color: var(--text-dim); font-size: 13px; margin-top: 4px; }
 .info-subtitle .id { font-family: monospace; }
