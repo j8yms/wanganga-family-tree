@@ -56,6 +56,18 @@ svg { width: 100%; height: 100%; }
 
 .link { fill: none; stroke: var(--surface2); stroke-width: 2; }
 .link.marriage { stroke: #e2a86b; stroke-width: 2.5; stroke-dasharray: 7 5; }
+/* Per-generation link colours: every link wears the colour of the generation
+   it leads INTO (drawn AFTER .link/.link.marriage so it always wins). The same
+   palette tints each chip's dot in the population panel, turning it into a
+   legend. Fallbacks cover any generation deeper than the palette. */
+.link.link-gen-1 { stroke: #3b82f6; }
+.link.link-gen-2 { stroke: #ec4899; }
+.link.link-gen-3 { stroke: #8b5cf6; }
+.link.link-gen-4 { stroke: #10b981; }
+.link.link-gen-5 { stroke: #f59e0b; }
+.link.link-gen-6 { stroke: #06b6d4; }
+.link.link-gen-7 { stroke: #f43f5e; }
+.link.link-gen-8, .link.link-gen-9, .link.link-gen-10 { stroke: #94a3b8; }
 .node-group { cursor: pointer; }
 .collapse-badge circle { transition: filter 0.2s; }
 .collapse-badge:hover circle { filter: brightness(1.25); }
@@ -482,6 +494,15 @@ body.drag-linking .node-group { cursor: grabbing; }
 .gen-chip b { color: var(--accent); }
 .gen-chip:hover { border-color: rgba(56,189,248,0.5); background: rgba(56,189,248,0.1); }
 .gen-chip.off { opacity: 0.4; text-decoration: line-through; }
+.gen-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
+.gen-dot-1 { background: #3b82f6; }
+.gen-dot-2 { background: #ec4899; }
+.gen-dot-3 { background: #8b5cf6; }
+.gen-dot-4 { background: #10b981; }
+.gen-dot-5 { background: #f59e0b; }
+.gen-dot-6 { background: #06b6d4; }
+.gen-dot-7 { background: #f43f5e; }
+.gen-dot-8, .gen-dot-9, .gen-dot-10 { background: #94a3b8; }
 /* Nodes plus links belonging to a filtered-out generation stay as ghosted
    placeholders so the tree keeps its shape. */
 .gen-filtered { opacity: 0.1; pointer-events: none; transition: opacity 0.25s; }

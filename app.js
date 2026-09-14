@@ -1567,8 +1567,12 @@ function renderTree() {
       const tGen = personGen[d.target.data.person_id];
       const genHidden = (sGen !== undefined && hiddenGenerations.has(sGen)) ||
                         (tGen !== undefined && hiddenGenerations.has(tGen));
-      const base = (Math.abs(d.source.y - d.target.y) < 2) ? 'link marriage' : 'link';
-      return genHidden ? base + ' gen-filtered' : base;
+      // Every link wears its target generation's color (link-gen-N = the row
+      // the link leads INTO; d3 links point parent->child, wives are children).
+      // Display Gen = computed + 1 so the class matches the panel's "Gen N".
+      let cls = (Math.abs(d.source.y - d.target.y) < 2) ? 'link marriage' : 'link';
+      if (tGen !== undefined && tGen >= 0) cls += ' link-gen-' + (tGen + 1);
+      return genHidden ? cls + ' gen-filtered' : cls;
     })
     .attr('d', d => {
       const rSrc = personR[d.source.data.person_id] || AVATAR_STD;
@@ -2563,6 +2567,7 @@ function renderGenStats() {
     const hidden = hiddenGenerations.has(g);
     html += '<span class="gen-chip' + (hidden ? ' off' : '') + '" onclick="toggleGeneration(' + g + ')"' +
             ' title="Click to ' + (hidden ? 'show' : 'dim') + ' Generation ' + (g + 1) + '">' +
+            '<span class="gen-dot gen-dot-' + (g + 1) + '"></span>' +
             'Gen ' + (g + 1) + ' <b>' + genCounts[g] + '</b></span>';
   });
   html += '</div>';
