@@ -1318,7 +1318,12 @@ function renderLabels(g, p, cx, r) {
     '7fc20e59-737f-41e3-8dd5-c4550a676041': 0.7 // Wang'ang'a wa Kĩnyanjui
   };
   const raised = RAISED_LABELS[p.person_id] ? 1 : 0;
-  const s = (LABEL_SIZE_OVERRIDE[p.person_id] != null ? LABEL_SIZE_OVERRIDE[p.person_id] : 1) * rad / AVATAR_STD;
+  // Beyond the founding rows the names no longer grow with the patriarch
+  // avatars: everyone in generation 4+ renders at the same standard size, so
+  // the deep tiers read uniformly no matter how big their avatar is.
+  const smallGen = (personGen[p.person_id] !== undefined) && (personGen[p.person_id] + 1) > 3;
+  const s = smallGen ? 1
+                     : (LABEL_SIZE_OVERRIDE[p.person_id] != null ? LABEL_SIZE_OVERRIDE[p.person_id] : 1) * rad / AVATAR_STD;
   const label = g.append('g')
     .attr('transform', 'translate(' + cx + ',' + Math.round(rad + LABEL_BASELINE + LABEL_STEP * s - raised * 2 * LABEL_STEP) + ') scale(' + s + ')');
   label.append('text')
