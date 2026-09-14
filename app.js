@@ -99,8 +99,9 @@ let schemaReady = false;
 let personCoord = {};
 let personNodeEl = {};
 
-// Final avatar radius per person (descendant-driven base x AVATAR_SCALE), built
-// once per render and shared by the layout (row strides, fan hugs) and renderer.
+// Final avatar radius per person (descendant-proportional, with the husband
+// head-of-house margin), built once per render and shared by the layout (row
+// strides, fan hugs) and renderer.
 let personR = {};
 
 // Congestion control: person_ids whose child branch the owner has collapsed.
@@ -827,16 +828,19 @@ function layoutFamilyTree(hierarchyRoot, rowSpace) {
   const MAN_WIFE_GAP = 30;
   const SIB_GAP = 56;
 
-  // Avatar-aware spacing helpers: ordinary members are spaced by their label
-  // half-width exactly as before; AVATAR_SCALE members by their enlarged radius.
-  const radiusOf = p => personR[p.person_id] || 64;
-  const edge = p => {
-    const s = AVATAR_SCALE[p.person_id] || 1;
-    return Math.max(radiusOf(p), labelWidth(p) * s / 2);
-  };
-  const hugGap = (a, b) => (AVATAR_SCALE[a.person_id] || AVATAR_SCALE[b.person_id])
-    ? edge(a) + 18 + edge(b)
-    : edge(a) + MAN_WIFE_GAP + edge(b);
+  // Universal size-aware spacing: an edge is the larger of the avatar radius
+  // and its (font-scaled) label half-width, so no neighbor — avatar or text —
+  // can crowd a bigger clan head. With s=1 these equal the old label-based
+  // half-widths, so ordinary rows keep their exact previous spacing.
+  const radiusOf = p => personR[p.person_id] || AVATAR_STD;
+  const labelScale = p => radiusOf(p) / AVATAR_STD;
+  const edge = p => Math.max(radiusOf(p), labelWidth(p) * labelScale(p) / 2);
+  const hugGap = (a, b) => edge(a) + MAN_WIFE_GAP + edge(b);
+
+  // Width of each child column: the subtree's real span, but never narrower
+  // than the child's own avatar (so two big siblings on one row keep apart).
+  const kidsWidths = snap => snap.columns.map(c =>
+    Math.max(measure(snapshot(c.kid)), 2 * radiusOf(c.kid.data) + 4));
 
   // Vertical stride above a row's children: this row's avatar + labels must
   // clear the next row's avatar tops. Ordinary rows keep the shared rowSpace.
@@ -850,11 +854,12 @@ function layoutFamilyTree(hierarchyRoot, rowSpace) {
     snap.columns.forEach(c => { m = Math.max(m, rowMaxR(snapshot(c.kid))); });
     return m;
   }
-  // How far this row's scaled labels drop below its avatars: the name baseline
-  // sits at rim + 20 and the death year a further 30*s down, plus ~2*s ascent.
+  // How far this row's scaled labels drop below its avatars (kept in sync with
+  // renderLabels: the name baseline sits LABEL_BASELINE + LABEL_STEP*s below the
+  // rim, and the death year trails LABEL_YEAR*s further, plus its descent).
   function rowLabelSkirt(snap) {
-    let m = 52;
-    const scan = px => { const s = AVATAR_SCALE[px.person_id] || 1; m = Math.max(m, 20 + 32 * s); };
+    let m = 0;
+    const scan = px => { m = Math.max(m, LABEL_BASELINE + (LABEL_STEP + LABEL_YEAR + LABEL_DESCENT) * labelScale(px)); };
     scan(snap.head.data);
     snap.wives.forEach(w => scan(w.data));
     return m;
@@ -897,7 +902,6 @@ function layoutFamilyTree(hierarchyRoot, rowSpace) {
   // wives chain out on her far side, so he still lands between the wives.
   // Returns null when there is no anchored wife to centre between.
   function hubFan(snap, kidWs) {
-    const headW = labelWidth(snap.head.data);
     const colStarts = [0];
     for (let i = 1; i < kidWs.length; i++) colStarts.push(colStarts[i - 1] + kidWs[i - 1] + SIB_GAP);
     const anchored = [];
@@ -921,10 +925,7 @@ function layoutFamilyTree(hierarchyRoot, rowSpace) {
       const maxX = Math.max.apply(null, anchored.map(a => a.x));
       manX = (minX + maxX) / 2;
     } else {
-      const maxW = kidless.length ? Math.max.apply(null, kidless.map(k => k.ww)) : 0;
-      manX = anchored[0].x - (AVATAR_SCALE[snap.head.data.person_id]
-        ? hugGap(snap.head.data, anchored[0].w.data)
-        : headW / 2 + MAN_WIFE_GAP + maxW / 2);
+      manX = anchored[0].x - hugGap(snap.head.data, anchored[0].w.data);
     }
 
     if (!kidless.length) return { manX, wives: anchored };
@@ -949,7 +950,7 @@ function layoutFamilyTree(hierarchyRoot, rowSpace) {
   }
 
   // Extent of a fan layout, measured from the block start.
-  function hubBounds(fan, kidWs, headW, head) {
+  function hubBounds(fan, kidWs, head) {
     let left = 0;
     let right = kidWs.reduce((s, w) => s + w, 0) + SIB_GAP * Math.max(0, kidWs.length - 1);
     const headEdge = edge(head);
@@ -967,15 +968,15 @@ function layoutFamilyTree(hierarchyRoot, rowSpace) {
   // Offsets are measured from the MAN's centre (he sits at x=0 here); the
   // returned width is translation-invariant, so it also works top-down.
   function measure(snap) {
-    const kidWs = snap.columns.map(c => measure(snapshot(c.kid)));
+    const kidWs = kidsWidths(snap);
     const kidsSpan = kidWs.reduce((s, w) => s + w, 0) + SIB_GAP * Math.max(0, kidWs.length - 1);
-    const headW = labelWidth(snap.head.data);
+    const mEdge = edge(snap.head.data);
 
     if (isUnionHead(snap)) {
-      const ww = labelWidth(snap.wives[0].data);
-      const U = headW / 4 + MAN_WIFE_GAP / 2 + ww / 4;              // sprout point
-      const left = Math.min(-headW / 2, U - kidsSpan / 2);          // block start
-      const right = Math.max(headW / 2 + MAN_WIFE_GAP + ww, U + kidsSpan / 2);
+      const wEdge = edge(snap.wives[0].data);
+      const U = mEdge / 2 + MAN_WIFE_GAP / 2 + wEdge / 2;           // sprout point
+      const left = Math.min(-mEdge, U - kidsSpan / 2);              // block start
+      const right = Math.max(mEdge + MAN_WIFE_GAP + wEdge, U + kidsSpan / 2);
       return Math.max(1, right - left);
     }
 
@@ -986,7 +987,7 @@ function layoutFamilyTree(hierarchyRoot, rowSpace) {
     if (snap.wives.length >= 2) {
       const fan = hubFan(snap, kidWs);
       if (fan) {
-        const b = hubBounds(fan, kidWs, headW, snap.head);
+        const b = hubBounds(fan, kidWs, snap.head);
         if (HUB_MIDPOINTS.has(snap.head.data.person_id)) {
           return Math.max(1, Math.max(2 * (fan.manX - b.left), b.right - b.left));
         }
@@ -997,14 +998,19 @@ function layoutFamilyTree(hierarchyRoot, rowSpace) {
     // General (2+ wives, mother-sprout, or leaf): children run from the block
     // start; the man centres over his own direct children (or floats left),
     // then his wives trail right of him.
-    const wRow = snap.wives.reduce((s, w) => s + MAN_WIFE_GAP + labelWidth(w.data), headW);
+    const wRow = snap.wives.reduce((s, w) => s + MAN_WIFE_GAP + 2 * edge(w.data), 2 * mEdge);
     let manCenter = 0;
     let ownBlock = 0;
     snap.columns.forEach((c, i) => {
       if (c.parent === snap.head) ownBlock += kidWs[i] + (ownBlock ? SIB_GAP : 0);
     });
     if (ownBlock) manCenter = ownBlock / 2;
-    return Math.max(kidsSpan, manCenter + wRow);
+    // The man's own row (him + his wives) runs [manCenter - mEdge, manCenter +
+    // wRow - mEdge]; widen the block when it pokes left of the block start so a
+    // big head or a wide wife's label never spills into the previous column.
+    const leftEdge = manCenter - mEdge;
+    const rowWidth = (manCenter + wRow - mEdge) - Math.min(0, leftEdge);
+    return Math.max(kidsSpan, rowWidth);
   }
   const rootSnap = snapshot(hierarchyRoot);
   const rootWidth = measure(rootSnap);
@@ -1012,17 +1018,17 @@ function layoutFamilyTree(hierarchyRoot, rowSpace) {
   // Top-down: parents hand each child a LEFT BOUND (never a centre), so every
   // node computes its own final x/y exactly once and can never be overwritten.
   function place(snap, topY, leftBound) {
-    const kidWs = snap.columns.map(c => measure(snapshot(c.kid)));
-    const headW = labelWidth(snap.head.data);
+    const kidWs = kidsWidths(snap);
     const vStep = verticalStep(snap);
 
     if (isUnionHead(snap)) {
-      const ww = labelWidth(snap.wives[0].data);
+      const mEdge = edge(snap.head.data);
+      const wEdge = edge(snap.wives[0].data);
       const kidsSpan = kidWs.reduce((s, w) => s + w, 0) + SIB_GAP * Math.max(0, kidWs.length - 1);
-      const U = headW / 4 + MAN_WIFE_GAP / 2 + ww / 4;              // sprout offset
-      const left = Math.min(-headW / 2, U - kidsSpan / 2);
+      const U = mEdge / 2 + MAN_WIFE_GAP / 2 + wEdge / 2;           // sprout offset
+      const left = Math.min(-mEdge, U - kidsSpan / 2);
       const manX = leftBound - left;                                // man at x=0 <- left
-      const wifeX = manX + headW / 2 + MAN_WIFE_GAP + ww / 2;
+      const wifeX = manX + mEdge + MAN_WIFE_GAP + wEdge;
       snap.head.x = manX;
       snap.head.y = topY;
       snap.wives[0].x = wifeX;
@@ -1042,7 +1048,7 @@ function layoutFamilyTree(hierarchyRoot, rowSpace) {
     if (snap.wives.length >= 2) {
       const fan = hubFan(snap, kidWs);
       if (fan) {
-        const b = hubBounds(fan, kidWs, headW, snap.head);
+        const b = hubBounds(fan, kidWs, snap.head);
         const off = -b.left; // slide the fan so its left edge hits the block start
         let cursor = leftBound + off;
         snap.columns.forEach((c, i) => {
@@ -1074,13 +1080,13 @@ function layoutFamilyTree(hierarchyRoot, rowSpace) {
     const manX = leftBound + manCenter;
     snap.head.x = manX;
     snap.head.y = topY;
-    let rowRight = manX + headW / 2;
+    let rowRight = manX + edge(snap.head.data);
 
     // Wives sit horizontally beside the man, each above her own children.
     snap.wives.forEach(w => {
       const wIdx = [];
       snap.columns.forEach((c, i) => { if (c.parent === w) wIdx.push(i); });
-      const ww = labelWidth(w.data);
+      const wEdge = edge(w.data);
       let wx;
       if (wIdx.length) {
         const span = wIdx.reduce((s, idx, j) => s + kidWs[idx] + (j ? SIB_GAP : 0), 0);
@@ -1088,16 +1094,53 @@ function layoutFamilyTree(hierarchyRoot, rowSpace) {
         for (let j = 0; j < wIdx[0]; j++) blockStart += kidWs[j] + SIB_GAP;
         wx = blockStart + span / 2;
       } else {
-        wx = rowRight + MAN_WIFE_GAP + ww / 2;
+        wx = rowRight + MAN_WIFE_GAP + wEdge;
       }
-      wx = Math.max(wx, rowRight + MAN_WIFE_GAP / 2 + ww / 2);
+      wx = Math.max(wx, rowRight + MAN_WIFE_GAP / 2 + wEdge);
       w.x = wx;
       w.y = topY;
-      rowRight = Math.max(rowRight, wx + ww / 2);
+      rowRight = Math.max(rowRight, wx + wEdge);
     });
   }
 
   place(rootSnap, 0, 0, rootWidth);
+
+  // Post-layout safety: guarantees every adjacent pair on a row clears each
+  // other's avatar + scaled-label plate, nudging the right-hand node and its
+  // whole subtree by any shortfall. Rows that belong to the centred hub fan
+  // (and the root's own row) are left untouched so the father stays directly
+  // above his heir; those rows carry wide clearances by construction anyway.
+  const ROW_CLEAR = 8;
+  const rowsByY = {};
+  const allNodes = [];
+  (function collectRows(n) { allNodes.push(n); (n.children || []).forEach(collectRows); })(rootSnap.head);
+  allNodes.forEach(n => {
+    if (!n.data || n.data.person_id === '__virtual__') return;
+    (rowsByY[n.y] = rowsByY[n.y] || []).push(n);
+  });
+  function shiftTree(n, dx) {
+    n.x += dx;
+    (n.children || []).forEach(c => shiftTree(c, dx));
+  }
+  const HUB_ROWS = new Set(['7fc20e59-737f-41e3-8dd5-c4550a676041', '848c6f7a-aca6-4a3e-ad19-86aa4e7d68e6']);
+  for (let pass = 0; pass < 16; pass++) {
+    let nudge = false;
+    Object.keys(rowsByY).forEach(yKey => {
+      const row = rowsByY[yKey].sort((a, b) => a.x - b.x);
+      if (row.some(n => HUB_ROWS.has(n.data.person_id))) return;
+      for (let i = 0; i + 1 < row.length; i++) {
+        const a = row[i], b = row[i + 1];
+        const minGap = edge(a.data) + edge(b.data) + ROW_CLEAR;
+        const gap = b.x - a.x;
+        if (gap < minGap) {
+          const dx = minGap - gap;
+          shiftTree(b, dx);
+          nudge = true;
+        }
+      }
+    });
+    if (!nudge) break;
+  }
 }
 
 // ============================================================
@@ -1238,11 +1281,11 @@ function renderAvatar(g, p, cx, updatedId, r) {
 }
 
 function renderLabels(g, p, cx, r) {
-  const s = AVATAR_SCALE[p.person_id] || 1;
-  const dy = (r || 32) - 32; // labels ride out with a larger avatar
+  const rad = r || AVATAR_STD;
+  const s = rad / AVATAR_STD; // name/details grow with the avatar
   const deceased = isDeceased(p);
   const label = g.append('g')
-    .attr('transform', 'translate(' + cx + ',' + (52 + dy) + ') scale(' + s + ')');
+    .attr('transform', 'translate(' + cx + ',' + Math.round(rad + LABEL_BASELINE + LABEL_STEP * s) + ') scale(' + s + ')');
   label.append('text')
     .attr('class', 'node-label')
     .attr('x', 0).attr('y', 0)
@@ -1250,13 +1293,13 @@ function renderLabels(g, p, cx, r) {
     .text(((p.gikuyu_name || '') + (p.fathers_name ? ' wa ' + p.fathers_name : '')).trim());
   label.append('text')
     .attr('class', 'node-sublabel')
-    .attr('x', 0).attr('y', 14)
+    .attr('x', 0).attr('y', LABEL_SUB)
     .style('font-size', (9 * s) + 'px')
     .text(p.other_names || '');
   if (deceased && p.death_year) {
     label.append('text')
       .attr('class', 'deceased-year')
-      .attr('x', 0).attr('y', 30)
+      .attr('x', 0).attr('y', LABEL_YEAR)
       .style('font-size', (10 * s) + 'px')
       .text('\u2020 ' + p.death_year);
   }
@@ -1293,36 +1336,42 @@ function computeDescendantCounts() {
   return counts;
 }
 
-const AVATAR_SCALE = {
-  '848c6f7a-aca6-4a3e-ad19-86aa4e7d68e6': 3,
-  '7fc20e59-737f-41e3-8dd5-c4550a676041': 3,
-  '8cfbb7a2-da77-413a-9c27-c06daef1a66c': 3,
-  '0d27fe93-d133-4554-a0a3-44702d08022d': 3,
-  'c4a620d3-344f-411c-b62c-82f39cb7725f': 3,
-  'f2aecb60-d3cb-443f-b862-b261626f99fb': 3
-};
+// Avatar sizing is descendant-proportional: a person's radius grows linearly
+// with how many descendants they have, measured RELATIVE to the largest line
+// in the whole tree. Childless people keep exactly the standard size (the
+// average radius of the previous avatars), so "more kids = bigger avatar"
+// reads instantly and always without anyone shrinking.
+const AVATAR_STD = 41;           // standard radius for people without descendants
+const AVATAR_MAX = 135;          // top of the range (same size the founders had)
+const AVATAR_HEAD_MARGIN = 12;   // a husband always visibly outranks his largest wife
+// Scaled label geometry (kept in sync with renderLabels): the name baseline
+// sits LABEL_BASELINE below the rim, and details/glyphs grow with the font scale.
+const LABEL_BASELINE = 16;
+const LABEL_STEP = 12;
+const LABEL_SUB = 14;
+const LABEL_YEAR = 30;
+const LABEL_DESCENT = 2;
 
-function avatarRadiusFor(descCount, pid) {
-  const scale = (pid && AVATAR_SCALE[pid]) || 1;
-  if (!descCount || descCount <= 0) return 32 * scale;
-  // Soft cap: +13px of growth by ~17 descendants, asymptote just below 46.
-  return Math.min(46, 32 + 13 * Math.min(1, Math.log2(1 + descCount) / Math.log2(17))) * scale;
-}
-
-// A couple shares ONE size: every spouse takes the strongest descendant total
-// in the marriage, so both avatars grow together and a founding couple is
-// always read as one unit (a childless wife next to a big patriarch no longer
-// stays tiny).
-function computeCoupleCounts() {
+function computeProportionalRadii() {
   const own = computeDescendantCounts();
-  const counts = {};
+  const maxD = Math.max.apply(null, persons.map(p => own[p.person_id] || 0)) || 1;
+  const base = {};
   persons.forEach(p => {
-    const members = [p.person_id, ...getAllSpouses(p.person_id)];
-    let best = 0;
-    members.forEach(id => { best = Math.max(best, own[id] || 0); });
-    counts[p.person_id] = best;
+    const d = own[p.person_id] || 0;
+    base[p.person_id] = Math.round(AVATAR_STD + (AVATAR_MAX - AVATAR_STD) * d / maxD);
   });
-  return counts;
+  // Marriage reads as one unit, but the patriarch stays the biggest figure in
+  // his house: every husband is bumped a clear margin above his largest wife,
+  // so Wang'ang'a tops his fan however strong a wife's own line is.
+  persons.forEach(p => {
+    if (!isMaleGender(p.gender)) return;
+    let m = base[p.person_id];
+    getAllSpouses(p.person_id).forEach(s => {
+      m = Math.max(m, (base[s] != null ? base[s] : AVATAR_STD) + AVATAR_HEAD_MARGIN);
+    });
+    base[p.person_id] = m;
+  });
+  return base;
 }
 
 // ============================================================
@@ -1387,10 +1436,11 @@ function renderTree() {
     }
   });
 
-  // Descendant-driven avatar sizing: count every child/grandchild/… once per
-  // person, then give each couple a shared size (will render Radar to match).
-  const descCounts = computeCoupleCounts();
-  persons.forEach(p => { personR[p.person_id] = avatarRadiusFor(descCounts[p.person_id] || 0, p.person_id); });
+  // Descendant-proportional avatar sizing: bigger clans inflate the avatar in
+  // direct proportion to their (relative) descendant count; childless people
+  // keep the standard size; a husband always outranks his largest wife.
+  const radii = computeProportionalRadii();
+  persons.forEach(p => { personR[p.person_id] = radii[p.person_id]; });
 
   // Polygynous bounding-box layout: wives on the husband's row, children one
   // row below, sibling sub-trees pushed apart by their real widths — at every
@@ -1431,8 +1481,8 @@ function renderTree() {
     .append('path')
     .attr('class', d => (Math.abs(d.source.y - d.target.y) < 2) ? 'link marriage' : 'link')
     .attr('d', d => {
-      const rSrc = avatarRadiusFor(descCounts[d.source.data.person_id] || 0, d.source.data.person_id);
-      const rTgt = avatarRadiusFor(descCounts[d.target.data.person_id] || 0, d.target.data.person_id);
+      const rSrc = personR[d.source.data.person_id] || AVATAR_STD;
+      const rTgt = personR[d.target.data.person_id] || AVATAR_STD;
       const sx = d.source.x;
       const sy = d.source.y + (d.source.data.person_id === '__virtual__' ? 16 : rSrc + 12);
       const tx = (d.target._linkTargetX !== undefined) ? d.target._linkTargetX : d.target.x;
@@ -1479,7 +1529,7 @@ function renderTree() {
     personNodeEl[data.person_id] = this;
 
     const pid1 = data.person_id.replace(/[^a-zA-Z0-9_-]/g, '') + '_' + (attrs.count++);
-    const radius = avatarRadiusFor(descCounts[data.person_id] || 0, data.person_id);
+    const radius = personR[data.person_id] || AVATAR_STD;
     renderAvatar(g, data, 0, pid1, radius);
     renderLabels(g, data, 0, radius);
 
