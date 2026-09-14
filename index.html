@@ -22,6 +22,7 @@
   <button class="btn btn-ghost" id="undo-btn" onclick="performUndo()" style="display:none">↩</button>
   <button class="btn btn-ghost" id="redo-btn" onclick="performRedo()" style="display:none">↪</button>
   <button class="btn btn-ghost" id="visits-btn" onclick="openVisitsModal()" style="display:none">&#128065; Visits</button>
+  <button class="btn btn-ghost" id="recent-btn" onclick="openRecentModal()" style="display:none">&#128339; Recent</button>
   <button class="btn btn-ghost" id="admin-btn" onclick="toggleAdminUnlock()">&#128274; Admin</button>
   <button class="btn btn-ghost" onclick="zoomReset()">Reset View</button>
   <button class="btn btn-ghost" id="bday-btn" onclick="openBirthdayRoll()">&#127874; Birthdays</button>
@@ -32,6 +33,9 @@
   <button class="bday-up-btn" id="bday-upcoming-btn" onclick="toggleBdayUpcoming()">&#127874; <span id="bday-upcoming-count"></span></button>
   <div id="bday-upcoming-list"></div>
 </div>
+
+<!-- Generational population summary + filter (top-left, below the title) -->
+<div id="gen-stats" class="hidden"></div>
 
 <div id="tree-container">
   <svg id="tree-svg"></svg>
@@ -82,6 +86,27 @@
     </table>
     <div class="modal-actions">
       <button class="btn btn-ghost" onclick="closeModal('visits-modal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Recent People Modal (admin-only: the 10 most recently added people) -->
+<div class="modal-overlay" id="recent-modal" onclick="if(event.target===this)closeModal('recent-modal')">
+  <div class="modal" style="max-width:640px;max-height:85vh;overflow-y:auto">
+    <h2>Recently Added</h2>
+    <div class="subtitle" id="recent-meta">Loading…</div>
+    <table id="recent-table" style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead>
+        <tr>
+          <th style="text-align:left;padding:6px;border-bottom:1px solid #444">When</th>
+          <th style="text-align:left;padding:6px;border-bottom:1px solid #444">Name</th>
+          <th style="text-align:left;padding:6px;border-bottom:1px solid #444">Added By</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal('recent-modal')">Close</button>
     </div>
   </div>
 </div>

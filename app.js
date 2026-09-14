@@ -107,6 +107,10 @@ let personR = {};
 // Congestion control: person_ids whose child branch the owner has collapsed.
 // hidden by an expand/collapse toggle badge on the node. Survives rerenders.
 const collapsedClusters = new Set();
+let personGen = {}; // person_id -> true generation (wives share their husband's row)
+const hiddenGenerations = new Set(); // gens dimmed on the tree by the gen filter
+let genCounts = {};  // generation -> number of people (full tree, collapsed branches included)
+let recentPeople = []; // up to 10 most recently added people (admin view)
 
 // Drag-to-link state: any real drag suppresses the node's click (radial menu)
 // for a short window so a drop never also opens the menu.
@@ -475,6 +479,12 @@ async function loadData() {
   }
   persons = (data.persons || []).filter(p => p.person_id && (p.gikuyu_name || p.fathers_name));
   relationships = (data.relationships || []).filter(r => r.relationship_id && r.parent_id && r.child_id && r.rel_type);
+  // Newest 10 people with a recorded created_at (falls back to none for legacy
+  // rows written before the timestamp column existed).
+  recentPeople = persons
+    .filter(p => p.created_at)
+    .sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))
+    .slice(0, 10);
   if (loadStatusEl) loadStatusEl.textContent = '';
   renderTree();
   refreshBirthdayWidgets();
@@ -1293,7 +1303,6 @@ function renderAvatar(g, p, cx, updatedId, r) {
 
 function renderLabels(g, p, cx, r) {
   const rad = r || AVATAR_STD;
-  const s = rad / AVATAR_STD; // name/details grow with the avatar
   const deceased = isDeceased(p);
   // The two biggist founders lean their label block two steps up so it never
   // crowds the row below, and keep the year one step lower to fully expose
@@ -1302,7 +1311,14 @@ function renderLabels(g, p, cx, r) {
     '848c6f7a-aca6-4a3e-ad19-86aa4e7d68e6': true, // Kĩnyanjui wa Kahata
     '7fc20e59-737f-41e3-8dd5-c4550a676041': true  // Wang'ang'a wa Kĩnyanjui
   };
+  // Per-person label size override: shrink the whole label block (name lines +
+  // death year) relative to the avatar size. Wang'ang'a's huge clan avatar is
+  // kept, but his name+dates render 30% smaller so they don't dominate the row.
+  const LABEL_SIZE_OVERRIDE = {
+    '7fc20e59-737f-41e3-8dd5-c4550a676041': 0.7 // Wang'ang'a wa Kĩnyanjui
+  };
   const raised = RAISED_LABELS[p.person_id] ? 1 : 0;
+  const s = (LABEL_SIZE_OVERRIDE[p.person_id] != null ? LABEL_SIZE_OVERRIDE[p.person_id] : 1) * rad / AVATAR_STD;
   const label = g.append('g')
     .attr('transform', 'translate(' + cx + ',' + Math.round(rad + LABEL_BASELINE + LABEL_STEP * s - raised * 2 * LABEL_STEP) + ') scale(' + s + ')');
   label.append('text')
@@ -1448,6 +1464,9 @@ function renderTree() {
       .attr('font-size', 16)
       .text('No family members yet. Click "+ Add Person" to begin.');
     document.getElementById('loading').style.display = 'none';
+    personGen = {};
+    genCounts = {};
+    renderGenStats();
     return;
   }
 
@@ -1483,6 +1502,35 @@ function renderTree() {
   layoutFamilyTree(hierarchyRoot, rowSpace);
   const nodes = hierarchyRoot.descendants();
 
+  // Generation census (full tree: collapsed branches still counted). True rows
+  // are recursive parent-steps, NOT d3 depth — wives sit on their husband's row
+  // (one extra hierarchy level) and folded households share a parent's row too.
+  //   wife:     same generation as her husband (the node she hangs under)
+  //   everyone: parent's generation + 1
+  // Display is Gen = computed + 1, so the eldest row reads "Generation 1".
+  personGen = {};
+  genCounts = {};
+  const censusRootId = hierarchyRoot.data.person_id;
+  const censusRootGen = (censusRootId === '__virtual__') ? -1 : 0;
+  personGen[censusRootId] = censusRootGen;
+  if (censusRootId !== '__virtual__') genCounts[censusRootGen] = 1;
+  const genWalk = (n) => {
+    if (!n) return;
+    const base = personGen[n.data.person_id];
+    (n.children || []).concat(n._children || []).forEach(walkChild);
+    function walkChild(c) {
+      if (!c) return;
+      const gen = c.data.isWife ? base : base + 1;
+      if (personGen[c.data.person_id] === undefined) {
+        personGen[c.data.person_id] = gen;
+        genCounts[gen] = (genCounts[gen] || 0) + 1;
+      }
+      genWalk(c);
+    }
+  };
+  genWalk(hierarchyRoot);
+  renderGenStats();
+
   // Folded husbands (Direction A): the man hangs under his WIFE's parents, so
   // the parent link should point at the wife who actually carries that branch.
   nodes.forEach(n => {
@@ -1514,7 +1562,14 @@ function renderTree() {
     .data(hierarchyRoot.links())
     .enter()
     .append('path')
-    .attr('class', d => (Math.abs(d.source.y - d.target.y) < 2) ? 'link marriage' : 'link')
+    .attr('class', d => {
+      const sGen = personGen[d.source.data.person_id];
+      const tGen = personGen[d.target.data.person_id];
+      const genHidden = (sGen !== undefined && hiddenGenerations.has(sGen)) ||
+                        (tGen !== undefined && hiddenGenerations.has(tGen));
+      const base = (Math.abs(d.source.y - d.target.y) < 2) ? 'link marriage' : 'link';
+      return genHidden ? base + ' gen-filtered' : base;
+    })
     .attr('d', d => {
       const rSrc = personR[d.source.data.person_id] || AVATAR_STD;
       const rTgt = personR[d.target.data.person_id] || AVATAR_STD;
@@ -1606,6 +1661,12 @@ function renderTree() {
         .attr('fill', '#ffffff')
         .text(isCollapsed ? '+' : '\u2212');
       badge.append('title').text(isCollapsed ? 'Expand this branch' : 'Collapse this branch');
+    }
+
+    // Dim the whole node (avatar + labels + badges) when its generation is
+    // filtered out — kept as a ghost so the tree shape stays intact.
+    if (hiddenGenerations.has(personGen[data.person_id])) {
+      g.classed('gen-filtered', true);
     }
   });
 
@@ -2393,6 +2454,11 @@ function reflectAdminUI() {
   if (visitsBtn && isSuperAdminLocal() && !isViewOnly) {
     visitsBtn.textContent = '👁 Visits';
   }
+  const recentBtn = document.getElementById('recent-btn');
+  if (recentBtn) recentBtn.style.display = isSuperAdminLocal() && !isViewOnly ? '' : 'none';
+  if (recentBtn && isSuperAdminLocal() && !isViewOnly) {
+    recentBtn.textContent = '🕒 Recent';
+  }
 }
 function openVisitsModal() {
   if (!isSuperAdminLocal()) { showToast('Unlock admin first to view the visitor log.'); return; }
@@ -2476,6 +2542,86 @@ function describeDevice(ua) {
   else if (/Chrome\//i.test(u)) br = 'Chrome';
   else if (/Safari/i.test(u)) br = 'Safari';
   return mob + os + ' · ' + br;
+}
+
+// ============================================================
+// Generational population summary + filter (top-left panel)
+// ============================================================
+// renderGenStats is called from renderTree after the census so the panel always
+// reflects the current data. Chips double as the filter: clicking toggles that
+// generation (see .gen-filtered in CSS).
+function renderGenStats() {
+  const panel = document.getElementById('gen-stats');
+  if (!panel) return;
+  const total = (persons && persons.length) || 0;
+  if (total === 0) { panel.classList.add('hidden'); return; }
+  panel.classList.remove('hidden');
+  const gens = Object.keys(genCounts).map(Number).sort((a, b) => a - b);
+  let html = '<div class="gen-total">Population: <span class="gen-total-count">' + total + '</span></div>';
+  html += '<div class="gen-rows">';
+  gens.forEach(g => {
+    const hidden = hiddenGenerations.has(g);
+    html += '<span class="gen-chip' + (hidden ? ' off' : '') + '" onclick="toggleGeneration(' + g + ')"' +
+            ' title="Click to ' + (hidden ? 'show' : 'dim') + ' Generation ' + (g + 1) + '">' +
+            'Gen ' + (g + 1) + ' <b>' + genCounts[g] + '</b></span>';
+  });
+  html += '</div>';
+  panel.innerHTML = html;
+}
+function toggleGeneration(gen) {
+  if (hiddenGenerations.has(gen)) hiddenGenerations.delete(gen);
+  else hiddenGenerations.add(gen);
+  renderTree();
+}
+
+// ============================================================
+// Recently Added modal (admin-only, newest 10 people)
+// ============================================================
+function openRecentModal() {
+  if (!isSuperAdminLocal()) { showToast('Unlock admin first to view recent additions.'); return; }
+  openModal('recent-modal');
+  renderRecentTable();
+}
+function formatRecentTs(ts) {
+  if (!ts) return 'unknown';
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return String(ts).slice(0, 16);
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mi = String(d.getMinutes()).padStart(2, '0');
+  return dd + '/' + mm + '/' + d.getFullYear() + ' ' + hh + ':' + mi;
+}
+function renderRecentTable() {
+  const meta = document.getElementById('recent-meta');
+  const tbody = document.querySelector('#recent-table tbody');
+  if (!tbody || !meta) return;
+  if (!recentPeople.length) {
+    meta.textContent = 'No recent additions recorded yet — created_at timestamps start with newly added people.';
+    tbody.innerHTML = '';
+    return;
+  }
+  meta.textContent = 'Newest ' + recentPeople.length + ' people added to the tree.';
+  tbody.innerHTML = recentPeople.map(p => {
+    const pid = String(p.person_id || '').replace(/[^a-zA-Z0-9_-]/g, '');
+    const safeName = escapeHtml(recentShortName(p));
+    const safeBy = escapeHtml(String(p.created_by || 'Anonymous'));
+    return '<tr>' +
+      '<td style="padding:6px;border-bottom:1px solid #222;color:#94a3b8">' + formatRecentTs(p.created_at) + '</td>' +
+      '<td style="padding:6px;border-bottom:1px solid #222"><a href="javascript:void(0)"' +
+      ' onclick="openRecentPerson(\'' + pid + '\')" style="color:var(--accent);text-decoration:none">' + safeName + '</a></td>' +
+      '<td style="padding:6px;border-bottom:1px solid #222;color:#94a3b8">' + safeBy + '</td>' +
+      '</tr>';
+  }).join('');
+}
+function recentShortName(p) {
+  return String(((p.gikuyu_name || '') + (p.fathers_name ? ' wa ' + p.fathers_name : '')).trim() || 'Unnamed');
+}
+function openRecentPerson(pid) {
+  const person = persons.find(p => p.person_id === pid) || null;
+  if (!person) { showToast('That person is no longer in the tree.'); return; }
+  closeModal('recent-modal');
+  onNodeSelected(person, null);
 }
 function toggleAdminUnlock() {
   if (isSuperAdminLocal()) {

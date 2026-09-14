@@ -459,6 +459,34 @@ body.drag-linking .node-group { cursor: grabbing; }
 .bday-up-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bday-up-when { color: var(--text-dim); font-size: 11px; white-space: nowrap; }
 
+/* ---- Generational stats + filter (top-left, below the title) ---- */
+#gen-stats {
+  position: fixed; top: 112px; left: 12px; z-index: 145;
+  background: var(--surface); border: 1px solid var(--surface2); border-radius: 12px;
+  padding: 8px 10px; box-shadow: 0 6px 16px rgba(0,0,0,0.35);
+  font-size: 12px; min-width: 150px; max-width: 280px;
+}
+#gen-stats.hidden { display: none; }
+.gen-total {
+  display: flex; align-items: baseline; gap: 8px;
+  margin-bottom: 6px; font-weight: 600; color: var(--accent);
+}
+.gen-total .gen-total-count { font-size: 15px; }
+.gen-rows { display: flex; flex-wrap: wrap; gap: 5px; }
+.gen-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 9px; border-radius: 14px; background: var(--surface2);
+  cursor: pointer; user-select: none; font-size: 11px; color: var(--text);
+  border: 1px solid transparent; transition: opacity 0.25s, background 0.2s, border-color 0.2s;
+}
+.gen-chip b { color: var(--accent); }
+.gen-chip:hover { border-color: rgba(56,189,248,0.5); background: rgba(56,189,248,0.1); }
+.gen-chip.off { opacity: 0.4; text-decoration: line-through; }
+/* Nodes plus links belonging to a filtered-out generation stay as ghosted
+   placeholders so the tree keeps its shape. */
+.gen-filtered { opacity: 0.1; pointer-events: none; transition: opacity 0.25s; }
+.link.gen-filtered { opacity: 0.06; }
+
 #bday-roll-list { margin-top: 12px; display: grid; gap: 6px; }
 .bday-roll-row {
   display: flex; align-items: center; gap: 10px;

@@ -20,7 +20,7 @@ function getSpreadsheetId() {
   return String(id).trim();
 }
 
-var PERSON_HEADERS = ['person_id', 'gikuyu_name', 'fathers_name', 'other_names', 'gender', 'is_living', 'birth_year', 'photo_url', 'death_year', 'created_by', 'place_of_birth', 'place_of_living', 'place_of_death', 'birth_qualifier', 'birth_month', 'birth_day', 'death_qualifier', 'death_month', 'death_day'];
+var PERSON_HEADERS = ['person_id', 'gikuyu_name', 'fathers_name', 'other_names', 'gender', 'is_living', 'birth_year', 'photo_url', 'death_year', 'created_by', 'place_of_birth', 'place_of_living', 'place_of_death', 'birth_qualifier', 'birth_month', 'birth_day', 'death_qualifier', 'death_month', 'death_day', 'created_at'];
 var RELATIONSHIP_HEADERS = ['relationship_id', 'parent_id', 'child_id', 'rel_type', 'spouse_link_id', 'created_by'];
 var VISIT_HEADERS = ['visit_id', 'ts', 'visitor_id', 'event', 'person_id', 'person_name', 'mode', 'location', 'user_agent', 'user_token'];
 
@@ -330,7 +330,8 @@ function doPost(e) {
           payload.birth_day ? String(payload.birth_day) : '',
           payload.death_qualifier ? String(payload.death_qualifier) : 'exact',
           payload.death_month ? String(payload.death_month) : '',
-          payload.death_day ? String(payload.death_day) : ''
+          payload.death_day ? String(payload.death_day) : '',
+          new Date().toISOString()
         ]);
         return jsonResponse({ success: true, person_id: newId });
 
