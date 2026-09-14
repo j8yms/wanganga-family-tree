@@ -1371,6 +1371,21 @@ function computeProportionalRadii() {
     });
     base[p.person_id] = m;
   });
+  // Deliberate visual shrink for individual matriarchs/patriarchs whose
+  // descendant-inflated avatar overshadowed their actual stature in the tree;
+  // ratio applies on top of the proportional size above.
+  const RADIUS_OVERRIDES = {
+    '7fc20e59-737f-41e3-8dd5-c4550a676041': 0.65, // Wang'ang'a wa Kĩnyanjui
+    '848c6f7a-aca6-4a3e-ad19-86aa4e7d68e6': 0.65, // Kĩnyanjui wa Kahata
+    '0d27fe93-d133-4554-a0a3-44702d08022d': 0.65, // Karira wa Gĩcũrũ
+    '7eaf72b0-edda-40d0-a571-732567b6c7e1': 0.65, // Kĩnyanjui wa Wang'ang'a
+    'd55a3659-3b8d-416b-969b-af1a1aadd5de': 0.65, // Nduta wa Njoroge
+    '0fd5fc3c-c989-4b4e-84bd-3b3f16d6a2ea': 0.80  // Njoroge wa Kĩnyanjui
+  };
+  persons.forEach(p => {
+    const k = RADIUS_OVERRIDES[p.person_id];
+    if (k != null) base[p.person_id] = Math.round(base[p.person_id] * k);
+  });
   return base;
 }
 
