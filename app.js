@@ -1105,6 +1105,17 @@ function layoutFamilyTree(hierarchyRoot, rowSpace) {
 
   place(rootSnap, 0, 0, rootWidth);
 
+  // The patriarch's label (with his "Wangara" other-name line) leans over the
+  // heir's row below; lift the whole node an extra two steps so the row keeps
+  // its breathing room without touching the avatar.
+  const NODAL_RISES = {
+    '848c6f7a-aca6-4a3e-ad19-86aa4e7d68e6': 2 * LABEL_STEP // Kĩnyanjui wa Kahata
+  };
+  (function riseNodes(n) {
+    if (n.data && NODAL_RISES[n.data.person_id] != null) n.y -= NODAL_RISES[n.data.person_id];
+    (n.children || []).forEach(riseNodes);
+  })(rootSnap.head);
+
   // Post-layout safety: guarantees every adjacent pair on a row clears each
   // other's avatar + scaled-label plate, nudging the right-hand node and its
   // whole subtree by any shortfall. Rows that belong to the centred hub fan
@@ -1388,7 +1399,8 @@ function computeProportionalRadii() {
     '0d27fe93-d133-4554-a0a3-44702d08022d': 0.65, // Karira wa Gĩcũrũ
     '7eaf72b0-edda-40d0-a571-732567b6c7e1': 0.65, // Kĩnyanjui wa Wang'ang'a
     'd55a3659-3b8d-416b-969b-af1a1aadd5de': 0.65, // Nduta wa Njoroge
-    '0fd5fc3c-c989-4b4e-84bd-3b3f16d6a2ea': 0.80  // Njoroge wa Kĩnyanjui
+    '0fd5fc3c-c989-4b4e-84bd-3b3f16d6a2ea': 0.80, // Njoroge wa Kĩnyanjui
+    'f2aecb60-d3cb-443f-b862-b261626f99fb': 0.82  // Wanjũhĩ wa Njamba
   };
   persons.forEach(p => {
     const k = RADIUS_OVERRIDES[p.person_id];
