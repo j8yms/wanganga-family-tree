@@ -830,9 +830,12 @@ function layoutFamilyTree(hierarchyRoot, rowSpace) {
   // Avatar-aware spacing helpers: ordinary members are spaced by their label
   // half-width exactly as before; AVATAR_SCALE members by their enlarged radius.
   const radiusOf = p => personR[p.person_id] || 64;
-  const edge = p => Math.max(radiusOf(p), labelWidth(p) / 2);
+  const edge = p => {
+    const s = AVATAR_SCALE[p.person_id] || 1;
+    return Math.max(radiusOf(p), labelWidth(p) * s / 2);
+  };
   const hugGap = (a, b) => (AVATAR_SCALE[a.person_id] || AVATAR_SCALE[b.person_id])
-    ? radiusOf(a) + 18 + radiusOf(b)
+    ? edge(a) + 18 + edge(b)
     : edge(a) + MAN_WIFE_GAP + edge(b);
 
   // Vertical stride above a row's children: this row's avatar + labels must
@@ -847,8 +850,17 @@ function layoutFamilyTree(hierarchyRoot, rowSpace) {
     snap.columns.forEach(c => { m = Math.max(m, rowMaxR(snapshot(c.kid))); });
     return m;
   }
+  // How far this row's scaled labels drop below its avatars: the name baseline
+  // sits at rim + 20 and the death year a further 30*s down, plus ~2*s ascent.
+  function rowLabelSkirt(snap) {
+    let m = 52;
+    const scan = px => { const s = AVATAR_SCALE[px.person_id] || 1; m = Math.max(m, 20 + 32 * s); };
+    scan(snap.head.data);
+    snap.wives.forEach(w => scan(w.data));
+    return m;
+  }
   function verticalStep(snap) {
-    return Math.max(rowSpace, rowMaxR(snap) + 64 + kidsRowMaxR(snap));
+    return Math.max(rowSpace, rowMaxR(snap) + rowLabelSkirt(snap) + 12 + kidsRowMaxR(snap));
   }
 
   // Heads that get the special "hub" layout: the man sits EXACTLY at the
@@ -1226,20 +1238,26 @@ function renderAvatar(g, p, cx, updatedId, r) {
 }
 
 function renderLabels(g, p, cx, r) {
+  const s = AVATAR_SCALE[p.person_id] || 1;
   const dy = (r || 32) - 32; // labels ride out with a larger avatar
   const deceased = isDeceased(p);
-  g.append('text')
+  const label = g.append('g')
+    .attr('transform', 'translate(' + cx + ',' + (52 + dy) + ') scale(' + s + ')');
+  label.append('text')
     .attr('class', 'node-label')
-    .attr('x', cx).attr('y', 52 + dy)
+    .attr('x', 0).attr('y', 0)
+    .style('font-size', (11 * s) + 'px')
     .text(((p.gikuyu_name || '') + (p.fathers_name ? ' wa ' + p.fathers_name : '')).trim());
-  g.append('text')
+  label.append('text')
     .attr('class', 'node-sublabel')
-    .attr('x', cx).attr('y', 66 + dy)
+    .attr('x', 0).attr('y', 14)
+    .style('font-size', (9 * s) + 'px')
     .text(p.other_names || '');
   if (deceased && p.death_year) {
-    g.append('text')
+    label.append('text')
       .attr('class', 'deceased-year')
-      .attr('x', cx).attr('y', 82 + dy)
+      .attr('x', 0).attr('y', 30)
+      .style('font-size', (10 * s) + 'px')
       .text('\u2020 ' + p.death_year);
   }
 }
