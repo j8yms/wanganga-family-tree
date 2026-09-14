@@ -1284,8 +1284,16 @@ function renderLabels(g, p, cx, r) {
   const rad = r || AVATAR_STD;
   const s = rad / AVATAR_STD; // name/details grow with the avatar
   const deceased = isDeceased(p);
+  // The two biggist founders lean their label block two steps up so it never
+  // crowds the row below, and keep the year one step lower to fully expose
+  // the "other names" line that was being masked underneath it.
+  const RAISED_LABELS = {
+    '848c6f7a-aca6-4a3e-ad19-86aa4e7d68e6': true, // Kĩnyanjui wa Kahata
+    '7fc20e59-737f-41e3-8dd5-c4550a676041': true  // Wang'ang'a wa Kĩnyanjui
+  };
+  const raised = RAISED_LABELS[p.person_id] ? 1 : 0;
   const label = g.append('g')
-    .attr('transform', 'translate(' + cx + ',' + Math.round(rad + LABEL_BASELINE + LABEL_STEP * s) + ') scale(' + s + ')');
+    .attr('transform', 'translate(' + cx + ',' + Math.round(rad + LABEL_BASELINE + LABEL_STEP * s - raised * 2 * LABEL_STEP) + ') scale(' + s + ')');
   label.append('text')
     .attr('class', 'node-label')
     .attr('x', 0).attr('y', 0)
@@ -1299,7 +1307,7 @@ function renderLabels(g, p, cx, r) {
   if (deceased && p.death_year) {
     label.append('text')
       .attr('class', 'deceased-year')
-      .attr('x', 0).attr('y', LABEL_YEAR)
+      .attr('x', 0).attr('y', LABEL_YEAR + raised * LABEL_STEP)
       .style('font-size', (10 * s) + 'px')
       .text('\u2020 ' + p.death_year);
   }
