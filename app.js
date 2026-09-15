@@ -1965,7 +1965,8 @@ function buildLifeSummary(person, counts) {
     sentences.push(he + ' is ' + (new Date().getFullYear() - birth) + ' years old.');
   }
 
-  // 4) Spouses, siblings and children (with a few names when the family is small).
+  // 4) Spouses, siblings, children and grandchildren (with a few names when the
+  // family is small).
   const clauses = [];
   if (counts.spousesList.length) {
     clauses.push('married to ' + nameList(counts.spousesList, 6));
@@ -1978,15 +1979,25 @@ function buildLifeSummary(person, counts) {
     clauses.push((alive ? 'has ' : 'had ') + counts.childrenCount + ' ' + (counts.childrenCount === 1 ? 'child' : 'children') +
       (counts.childrenCount <= 4 ? ' (' + nameList(counts.childrenNames) + ')' : ''));
   }
+  if (counts.grandchildCount) {
+    clauses.push((alive ? 'has ' : 'had ') + counts.grandchildCount + ' ' +
+      (counts.grandchildCount === 1 ? 'grandchild' : 'grandchildren'));
+  }
   if (clauses.length) {
-    // No extra "is/was" when the first clause already carries its own verb
-    // ("He has 2 siblings..."), e.g. when there is no spouse clause.
-    if (clauses.length > 1) {
-      for (let i = 1; i < clauses.length; i++) clauses[i] = clauses[i].replace(/^(?:(?:has|had) )/, '');
-      clauses[clauses.length - 1] = 'and ' + clauses[clauses.length - 1];
+    // Join parallel predicates so the sentence always reads correctly. A bare
+    // "married to …" first clause is verbless ("He was married to …"), so the
+    // following clause must keep its own verb ("… had 10 children"), while any
+    // further clauses drop it for a clean list ("… and 37 grandchildren").
+    const firstBearsVerb = /^(?:has|had) /.test(clauses[0]);
+    for (let i = 1; i < clauses.length; i++) {
+      if (firstBearsVerb || i > 1) clauses[i] = clauses[i].replace(/^(?:(?:has|had) )/, '');
     }
+    let joined;
+    if (clauses.length === 1) joined = clauses[0];
+    else if (clauses.length === 2) joined = clauses[0] + ' and ' + clauses[1];
+    else joined = clauses.slice(0, -1).join(', ') + ' and ' + clauses[clauses.length - 1];
     const prefix = clauses[0].startsWith('married to ') ? (alive ? he + ' is ' : he + ' was ') : '';
-    sentences.push(prefix + clauses.join(', ') + '.');
+    sentences.push(prefix + joined + '.');
   }
 
   return sentences.join(' ');
@@ -2421,6 +2432,13 @@ function aggregateFamilyCounts(targetPersonId, relationships, persons) {
   const childrenIds = unionChildrenOf(targetPersonId);
   const childrenLinks = childrenIds.map(id => ({ child_id: id }));
 
+  // Grandchildren: the union of every child's own children (children of the
+  // child plus children of the child's spouses), deduped and never the subject.
+  const grandchildIds = new Set();
+  childrenIds.forEach(cid => {
+    unionChildrenOf(cid).forEach(gid => { if (gid !== targetPersonId) grandchildIds.add(gid); });
+  });
+
   // 2. Identify Parents to extract Sibling lists accurately
   const parentLinks = relationships.filter(r => r.child_id === targetPersonId && r.rel_type !== "Spouse");
   const parentIds = parentLinks.map(p => p.parent_id);
@@ -2442,6 +2460,7 @@ function aggregateFamilyCounts(targetPersonId, relationships, persons) {
   return {
     childrenCount: childrenLinks.length,
     childrenNames: childrenIds.map(id => { const o = persons.find(p => p.person_id === id); return o ? shortName(o) : null; }).filter(Boolean),
+    grandchildCount: grandchildIds.size,
     siblingCount: siblingIds.size,
     siblingNames: Array.from(siblingIds).map(id => { const o = persons.find(p => p.person_id === id); return o ? shortName(o) : null; }).filter(Boolean),
     spousesList: spouseNames
