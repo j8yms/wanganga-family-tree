@@ -211,28 +211,32 @@ async function createRelationshipSafe(parentId, childId, relType) {
   if (existing) return { success: true, skipped: true, relationship_id: existing.relationship_id };
 
   let res = null;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try { res = await apiPost(payload, 1); } catch (e) { res = null; }
-    if (res && res.success) return { success: true, relationship_id: res.relationship_id };
+  try { res = await apiPost(payload, 1); } catch (e) { res = null; }
+  if (res && res.success) return { success: true, relationship_id: res.relationship_id };
 
-    // The write "reported" failure but may have executed anyway (e.g. the Google
-    // Apps Script loading-redirect fallback that returns the doGet error page for
-    // the first request of a session). Re-sync and look for the row before retrying.
-    try {
-      const fresh = await apiGet('getAll', {}, 3);
-      if (fresh && fresh.success) {
-        relationships = (fresh.relationships || []).filter(r => r.relationship_id && r.parent_id && r.child_id && r.rel_type);
-        const landed = relationships.find(r =>
-          String(r.parent_id) === String(parentId) &&
-          String(r.child_id) === String(childId) &&
-          String(r.rel_type) === String(relType));
-        if (landed) return { success: true, landed: true, relationship_id: landed.relationship_id };
-      }
-    } catch (e) { /* keep going to the next retry */ }
+  // The write "failed", but it may have executed. Re-sync from the server and
+  // look for the row before deciding to retry.
+  try {
+    const fresh = await apiGet('getAll', {}, 3);
+    if (fresh && fresh.success) {
+      relationships = (fresh.relationships || []).filter(r => r.relationship_id && r.parent_id && r.child_id && r.rel_type);
+      const landed = relationships.find(r =>
+        String(r.parent_id) === String(parentId) &&
+        String(r.child_id) === String(childId) &&
+        String(r.rel_type) === String(relType));
+      if (landed) return { success: true, landed: true, relationship_id: landed.relationship_id };
+    }
+  } catch (e) { /* keep going to a single retry */ }
 
-    if (attempt < 2) await new Promise(r => setTimeout(r, 1500));
+  // Not present anywhere: a plain request failure. Safe to retry once.
+  try {
+    res = await apiPost(payload, 1);
+  } catch (e) {
+    res = null;
   }
-  return { success: false, error: (res && res.error) || 'Link failed (network).' };
+  return (res && res.success)
+    ? { success: true, relationship_id: res.relationship_id }
+    : { success: false, error: (res && res.error) || 'Link failed (network).' };
 }
 
 async function deleteRelationshipSafe(relId) {
@@ -2592,6 +2596,36 @@ function renderGenStats() {
   });
   html += '</div>';
   panel.innerHTML = html;
+  renderGenderStats();
+}
+function renderGenderStats() {
+  const panel = document.getElementById('gender-stats');
+  if (!panel) return;
+  const total = (persons && persons.length) || 0;
+  if (total === 0) { panel.classList.add('hidden'); return; }
+  panel.classList.remove('hidden');
+  let m = 0, f = 0;
+  for (let i = 0; i < persons.length; i++) {
+    const g = String(persons[i].gender || '');
+    if (/^f/i.test(g)) f++;
+    else if (/^m/i.test(g)) m++;
+  }
+  const pctM = total ? Math.round((m / total) * 100) : 0;
+  const pctF = total ? Math.round((f / total) * 100) : 0;
+  panel.innerHTML =
+    '<div class="gend-row">' +
+      '<span class="gend-chip male"><span class="gend-ico">♂</span>Men <b>' + m + '</b></span>' +
+      '<span class="gend-chip female"><span class="gend-ico">♀</span>Women <b>' + f + '</b></span>' +
+      '<span class="gend-total">TOTAL <b>' + total + '</b></span>' +
+    '</div>' +
+    '<div class="gend-bar">' +
+      '<div class="gend-bar-seg gend-male" style="width:' + pctM + '%"></div>' +
+      '<div class="gend-bar-seg gend-female" style="width:' + pctF + '%"></div>' +
+    '</div>' +
+    '<div class="gend-pcts">' +
+      '<span class="male">' + pctM + '%</span>' +
+      '<span class="female">' + pctF + '%</span>' +
+    '</div>';
 }
 function toggleGeneration(gen) {
   if (hiddenGenerations.has(gen)) hiddenGenerations.delete(gen);
@@ -4109,17 +4143,6 @@ async function onboardSubmitNew() {
 
   if (targetRelative && relation) {
     const linkResults = await linkUserToRelative(userId, relation, targetRelative);
-    // A NEW profile that could not be linked would otherwise sit at the top of
-    // the tree as an orphan root (this is what caused Nggj/Ann to vanish to the
-    // top). Remove it and let the user retry, mirroring savePerson's rollback.
-    if (!obSelectedPerson && linkResults.failed > 0) {
-      await deletePersonSafe(userId);
-      targetRelative = null;
-      obSelectedPerson = null;
-      closeModal('onboard-modal');
-      showToast('Person was not added: linking to the tree failed. Please try again.');
-      return;
-    }
     const baseMsg = obSelectedPerson ? 'Profile merged' : 'Profile created';
     showToast(baseMsg + ' and linked to ' + (targetRelative.gikuyu_name || 'your relative') +
       (linkResults.failed > 0 ? ' (' + linkResults.failed + ' links failed)' : ''));

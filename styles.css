@@ -510,6 +510,43 @@ body.drag-linking .node-group { cursor: grabbing; }
 .gen-filtered { opacity: 0.1; pointer-events: none; transition: opacity 0.25s; }
 .link.gen-filtered { opacity: 0.06; }
 
+#gender-stats {
+  background: var(--surface); border: 1px solid var(--surface2); border-radius: 12px;
+  padding: 8px 10px; box-shadow: 0 6px 16px rgba(0,0,0,0.35);
+  font-size: 12px; min-width: 150px; max-width: 280px;
+}
+#gender-stats.hidden { display: none; }
+.gend-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; flex-wrap: wrap; }
+.gend-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 9px; border-radius: 14px; background: var(--surface2);
+  font-size: 11px; color: var(--text); user-select: none;
+}
+.gend-chip.male { border: 1px solid rgba(59,130,246,0.5); }
+.gend-chip.female { border: 1px solid rgba(236,72,153,0.5); }
+.gend-chip b { font-size: 13px; }
+.gend-chip.male b { color: #60a5fa; }
+.gend-chip.female b { color: #f472b6; }
+.gend-ico { font-size: 13px; line-height: 1; }
+.gend-total {
+  margin-left: auto; color: var(--text-dim); font-size: 10px; letter-spacing: 0.4px;
+  white-space: nowrap;
+}
+.gend-total b { color: var(--accent); font-size: 12px; }
+.gend-bar {
+  display: flex; height: 8px; border-radius: 999px; overflow: hidden;
+  background: var(--surface2);
+}
+.gend-bar-seg { height: 100%; transition: width 0.4s ease; }
+.gend-male { background: #3b82f6; }
+.gend-female { background: #ec4899; }
+.gend-pcts {
+  display: flex; justify-content: space-between; margin-top: 3px;
+  font-size: 10px; color: var(--text-dim);
+}
+.gend-pcts .male { color: #60a5fa; }
+.gend-pcts .female { color: #f472b6; }
+
 #bday-roll-list { margin-top: 12px; display: grid; gap: 6px; }
 .bday-roll-row {
   display: flex; align-items: center; gap: 10px;
