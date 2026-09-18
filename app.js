@@ -211,32 +211,28 @@ async function createRelationshipSafe(parentId, childId, relType) {
   if (existing) return { success: true, skipped: true, relationship_id: existing.relationship_id };
 
   let res = null;
-  try { res = await apiPost(payload, 1); } catch (e) { res = null; }
-  if (res && res.success) return { success: true, relationship_id: res.relationship_id };
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try { res = await apiPost(payload, 1); } catch (e) { res = null; }
+    if (res && res.success) return { success: true, relationship_id: res.relationship_id };
 
-  // The write "failed", but it may have executed. Re-sync from the server and
-  // look for the row before deciding to retry.
-  try {
-    const fresh = await apiGet('getAll', {}, 3);
-    if (fresh && fresh.success) {
-      relationships = (fresh.relationships || []).filter(r => r.relationship_id && r.parent_id && r.child_id && r.rel_type);
-      const landed = relationships.find(r =>
-        String(r.parent_id) === String(parentId) &&
-        String(r.child_id) === String(childId) &&
-        String(r.rel_type) === String(relType));
-      if (landed) return { success: true, landed: true, relationship_id: landed.relationship_id };
-    }
-  } catch (e) { /* keep going to a single retry */ }
+    // The write "reported" failure but may have executed anyway (e.g. the Google
+    // Apps Script loading-redirect fallback that returns the doGet error page for
+    // the first request of a session). Re-sync and look for the row before retrying.
+    try {
+      const fresh = await apiGet('getAll', {}, 3);
+      if (fresh && fresh.success) {
+        relationships = (fresh.relationships || []).filter(r => r.relationship_id && r.parent_id && r.child_id && r.rel_type);
+        const landed = relationships.find(r =>
+          String(r.parent_id) === String(parentId) &&
+          String(r.child_id) === String(childId) &&
+          String(r.rel_type) === String(relType));
+        if (landed) return { success: true, landed: true, relationship_id: landed.relationship_id };
+      }
+    } catch (e) { /* keep going to the next retry */ }
 
-  // Not present anywhere: a plain request failure. Safe to retry once.
-  try {
-    res = await apiPost(payload, 1);
-  } catch (e) {
-    res = null;
+    if (attempt < 2) await new Promise(r => setTimeout(r, 1500));
   }
-  return (res && res.success)
-    ? { success: true, relationship_id: res.relationship_id }
-    : { success: false, error: (res && res.error) || 'Link failed (network).' };
+  return { success: false, error: (res && res.error) || 'Link failed (network).' };
 }
 
 async function deleteRelationshipSafe(relId) {
@@ -4113,6 +4109,17 @@ async function onboardSubmitNew() {
 
   if (targetRelative && relation) {
     const linkResults = await linkUserToRelative(userId, relation, targetRelative);
+    // A NEW profile that could not be linked would otherwise sit at the top of
+    // the tree as an orphan root (this is what caused Nggj/Ann to vanish to the
+    // top). Remove it and let the user retry, mirroring savePerson's rollback.
+    if (!obSelectedPerson && linkResults.failed > 0) {
+      await deletePersonSafe(userId);
+      targetRelative = null;
+      obSelectedPerson = null;
+      closeModal('onboard-modal');
+      showToast('Person was not added: linking to the tree failed. Please try again.');
+      return;
+    }
     const baseMsg = obSelectedPerson ? 'Profile merged' : 'Profile created';
     showToast(baseMsg + ' and linked to ' + (targetRelative.gikuyu_name || 'your relative') +
       (linkResults.failed > 0 ? ' (' + linkResults.failed + ' links failed)' : ''));
