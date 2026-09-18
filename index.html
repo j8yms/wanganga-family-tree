@@ -160,6 +160,20 @@
         <select id="pf-relation"></select>
       </div>
 
+      <div class="form-group autocomplete-wrapper" id="pf-link-section" style="display:none">
+        <label>Link to an existing person (so they appear under them)</label>
+        <input type="text" id="pf-link-search" placeholder="Search a family member..." autocomplete="off">
+        <div class="autocomplete-list" id="pf-link-search-results"></div>
+        <select id="pf-link-relation" style="margin-top:8px">
+          <option value="child">a child of the person</option>
+          <option value="father">the Father of the person</option>
+          <option value="mother">the Mother of the person</option>
+          <option value="spouse">the Spouse of the person</option>
+          <option value="sibling">a Sibling of the person</option>
+        </select>
+        <div class="subtitle" style="color:var(--text-dim);margin-top:8px">If you don't link them, they'll appear at the top of the tree.</div>
+      </div>
+
       <div class="form-group">
         <label>Passport Photo</label>
         <img class="photo-preview" id="pf-photo-preview" alt="preview">

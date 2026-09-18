@@ -3061,7 +3061,7 @@ function configureRelation(linkType) {
     wrap.style.display = '';
     const isParent = linkType === 'parent';
     document.getElementById('pf-relation-label').textContent =
-      isParent ? 'Is this new person your Father or Mother?' : 'Is this new person your Husband or Wife?';
+      isParent ? 'Is this new person the Father or Mother of the selected person?' : 'Is this new person your Husband or Wife?';
     sel.innerHTML = isParent
       ? '<option value="father">Father</option><option value="mother">Mother</option>'
       : '<option value="husband">Husband</option><option value="wife">Wife</option>';
@@ -3077,6 +3077,24 @@ function applyRelationGender(sel) {
     document.getElementById('pf-gender').value = 'Male';
   } else if (v === 'mother' || v === 'wife') {
     document.getElementById('pf-gender').value = 'Female';
+  }
+}
+
+function pfLinkPicked(person) {
+  const rel = document.getElementById('pf-link-relation').value;
+  document.getElementById('pf-link-parent-id').value = person.person_id;
+  const relWrap = document.getElementById('pf-relation-wrap');
+  const sel = document.getElementById('pf-relation');
+  if (rel === 'father' || rel === 'mother') {
+    document.getElementById('pf-link-type').value = 'parent';
+    relWrap.style.display = '';
+    document.getElementById('pf-relation-label').textContent = 'Is this new person the Father or Mother of the selected person?';
+    sel.innerHTML = '<option value="father">Father</option><option value="mother">Mother</option>';
+    sel.value = rel;
+    applyRelationGender(sel);
+  } else {
+    document.getElementById('pf-link-type').value = rel === 'spouse' ? 'spouse' : (rel === 'sibling' ? 'sibling' : 'child');
+    relWrap.style.display = 'none';
   }
 }
 
@@ -3188,6 +3206,12 @@ function openAddPersonModal(linkParent, linkType) {
   document.getElementById('pf-link-parent-id').value = linkParent ? linkParent.person_id : '';
   document.getElementById('pf-link-type').value = linkType || '';
   configureRelation(linkType || '');
+  const pfLinkSection = document.getElementById('pf-link-section');
+  const pfLinkSearch = document.getElementById('pf-link-search');
+  if (pfLinkSection) pfLinkSection.style.display = linkParent ? 'none' : '';
+  if (pfLinkSearch) { pfLinkSearch.value = ''; delete pfLinkSearch.dataset.personId; }
+  const pfLinkRelation = document.getElementById('pf-link-relation');
+  if (pfLinkRelation) pfLinkRelation.value = 'child';
   document.getElementById('pf-gikuyu').value = '';
   document.getElementById('pf-father').value = '';
   document.getElementById('pf-other').value = '';
@@ -3229,6 +3253,8 @@ function openAddPersonModal(linkParent, linkType) {
 function openEditModal(node) {
   document.getElementById('person-modal-title').textContent = 'Edit Person';
   document.getElementById('person-modal-subtitle').textContent = 'Update the details below';
+  const pfLinkSection = document.getElementById('pf-link-section');
+  if (pfLinkSection) pfLinkSection.style.display = 'none';
   document.getElementById('pf-id').value = node.person_id;
   document.getElementById('pf-link-parent-id').value = '';
   document.getElementById('pf-link-type').value = '';
@@ -3292,6 +3318,14 @@ async function savePerson() {
     if (dup && !confirm(fullName(dup) + ' already exists in the tree. Create a duplicate anyway?')) {
       return;
     }
+  }
+
+  // A new person with no link has nothing to attach under, so they would be
+  // drawn at the very top as a new founding root. Warn before saving one.
+  if (!id && !linkParentId) {
+    const continueAnyway = confirm(fullName({ gikuyu_name: gikuyu, fathers_name: fathers }) +
+      ' is not linked to anyone on the tree, so they will appear at the top as a new founding member. Continue anyway?');
+    if (!continueAnyway) return;
   }
 
   // Close the modal IMMEDIATELY so the UI never appears frozen. The network
@@ -3989,6 +4023,14 @@ async function onboardSubmitNew() {
     }
   }
 
+  // Brand-new profile with no chosen relative -> would become an orphan root at
+  // the top of the tree. Warn so the person is linked (or intentionally skipped).
+  if (!obSelectedPerson && !targetRelative) {
+    const continueAnyway = confirm(fullName({ gikuyu_name: gikuyu, fathers_name: fathers }) +
+      ' is not linked to anyone on the tree, so they will appear at the top as a new founding member. Continue anyway?');
+    if (!continueAnyway) return;
+  }
+
   // Immediate feedback + lock to stop double-submits while it saves.
   onboardSubmitNew.busy = true;
   showToast('Saving…');
@@ -4217,6 +4259,7 @@ function onboardNewProfile() {
 // ============================================================
 attachNameAutocomplete('pf-gikuyu', 'pf-gikuyu-results', { fillFather: true });
 attachNameAutocomplete('pf-father', 'pf-father-results');
+attachNameAutocomplete('pf-link-search', 'pf-link-search-results', { onPick: pfLinkPicked });
 attachNameAutocomplete('ob-gikuyu', 'ob-gikuyu-results', {
   fillFather: true,
   onPick: (person) => {
